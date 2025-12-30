@@ -24,7 +24,9 @@ system l1
    unsupported speed action error
    unsupported error-correction action error
 !
+{# LOOP: Configures all interfaces EXCEPT Management0 #}
 {% for interface in obj.interfaces.all() %}
+   {% if interface.name != 'Management0' %}
 interface {{ interface.name }}
    {% if interface.description %}
    description {{ interface.description }}
@@ -36,7 +38,10 @@ interface {{ interface.name }}
    {% endfor %}
    {% endif %}
 !
+   {% endif %}
 {% endfor %}
+
+{# MANUAL: Configures Management0 specifically using Primary IPs #}
 interface Management0
    {% if obj.primary_ip4 %}
    ip address {{ obj.primary_ip4.address }}
