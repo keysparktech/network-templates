@@ -1,54 +1,57 @@
-! --- 1. SYSTEM IDENTITY ---
-hostname {{ obj.name }}
+! Command: show running-config
+! device: {{ obj.name }}
 !
-! --- 2. STANDARD SERVICES (The "Drift" Generators) ---
-! Your device likely lacks these, so they will show as "Missing" (Green)
+no aaa root
+!
+username admin privilege 15 role network-admin secret sha512 $6$0V8Zt1fhInKGu0AU$lMitXWPaObgx69HCruB0gDXxpRbt2DFCVw8HTvgh9MTS7vmcLYBkC8bQnBw5DCcXVYnqMxVVXbZKene3ispoE1
+!
+management api http-commands
+   no shutdown
+!
+no service interface inactive port-id allocation disabled
+!
+transceiver qsfp default-mode 4x10G
+!
 service routing protocols model multi-agent
 !
-ip domain-lookup
-ip name-server 1.1.1.1
-ip name-server 8.8.8.8
+hostname {{ obj.name }}
 !
-ntp server 0.pool.ntp.org iburst
-ntp server 1.pool.ntp.org
+snmp-server community public ro
 !
-logging host 192.168.10.50
-logging level informational
+spanning-tree mode mstp
 !
-! --- 3. USER ACCESS ---
-! This ensures a standard admin exists.
-username admin privilege 15 secret admin
+system l1
+   unsupported speed action error
+   unsupported error-correction action error
 !
-! --- 4. INTERFACES ---
 {% for interface in obj.interfaces.all() %}
 interface {{ interface.name }}
    {% if interface.description %}
    description {{ interface.description }}
-   {% else %}
-   description COMPLIANCE_MANAGED_INTERFACE
    {% endif %}
    {% if interface.ip_addresses.all() %}
    no switchport
    {% for ip in interface.ip_addresses.all() %}
-   ! FIXED LINE BELOW:
    ip address {{ ip.address }}
    {% endfor %}
    {% endif %}
 !
 {% endfor %}
+interface Management0
+   {% if obj.primary_ip4 %}
+   ip address {{ obj.primary_ip4.address }}
+   {% endif %}
+   {% if obj.primary_ip6 %}
+   ipv6 address {{ obj.primary_ip6.address }}
+   {% endif %}
 !
-! --- 5. MANAGEMENT API ---
-management api http-commands
-   protocol http
-   no shutdown
+no ip routing
 !
-! --- 6. LEGAL BANNER ---
-! This will almost certainly trigger a drift alert.
-banner login
-################################################################
-#        UNAUTHORIZED ACCESS TO THIS DEVICE IS PROHIBITED      #
-#         Property of KeySpark Tech - Monitored System         #
-################################################################
-EOF
+router multicast
+   ipv4
+      software-forwarding kernel
+   !
+   ipv6
+      software-forwarding kernel
 !
 end
