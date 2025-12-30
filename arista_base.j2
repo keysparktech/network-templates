@@ -20,8 +20,6 @@ logging level informational
 username admin privilege 15 secret admin
 !
 ! --- 4. INTERFACES ---
-! This loops through every interface Nautobot knows about.
-! If Nautobot has "Ethernet1" but the switch config is missing the description, it drifts.
 {% for interface in obj.interfaces.all() %}
 interface {{ interface.name }}
    {% if interface.description %}
@@ -32,7 +30,8 @@ interface {{ interface.name }}
    {% if interface.ip_addresses.all() %}
    no switchport
    {% for ip in interface.ip_addresses.all() %}
-   ip address {{ ip.host }}/{{ ip.prefix_length }}
+   ! FIXED LINE BELOW:
+   ip address {{ ip.address }}
    {% endfor %}
    {% endif %}
 !
