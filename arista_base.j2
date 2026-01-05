@@ -26,32 +26,48 @@ system l1
    unsupported speed action error
    unsupported error-correction action error
 !
-{# LOOP: Configures all interfaces EXCEPT Management0 #}
+{# --- MAIN INTERFACE LOOP --- #}
 {% for interface in obj.interfaces.all() %}
    {% if interface.name != 'Management0' %}
 interface {{ interface.name }}
    {% if interface.description %}
    description {{ interface.description }}
    {% endif %}
-   {% if interface.ip_addresses.all() %}
+   {# FIX 1: Only add 'no switchport' if it is an Ethernet interface #}
+   {% if 'Ethernet' in interface.name %}
    no switchport
-   {% for ip in interface.ip_addresses.all() %}
-   ip address {{ ip.address }}
-   {% endfor %}
    {% endif %}
+   {% for ip in interface.ip_addresses.all() %}
+     {# FIX 2: Distinguish v4 vs v6 #}
+     {% if ip.ip_version == 4 %}
+   ip address {{ ip.address }}
+     {% else %}
+   ipv6 address {{ ip.address }}
+     {% endif %}
+   {% endfor %}
 !
    {% endif %}
 {% endfor %}
 
-{# MANUAL: Configures Management0 specifically using Primary IPs #}
+{# --- MANAGEMENT INTERFACE LOOP --- #}
+{# FIX 3: We loop again to find Management0 so we can get its specific IPs #}
+{% for interface in obj.interfaces.all() %}
+   {% if interface.name == 'Management0' %}
 interface Management0
-   {% if obj.primary_ip4 %}
-   ip address {{ obj.primary_ip4.address }}
+   {% if interface.description %}
+   description {{ interface.description }}
    {% endif %}
-   {% if obj.primary_ip6 %}
-   ipv6 address {{ obj.primary_ip6.address }}
-   {% endif %}
+   {# Management0 usually does not use 'no switchport' command #}
+   {% for ip in interface.ip_addresses.all() %}
+      {% if ip.ip_version == 4 %}
+   ip address {{ ip.address }}
+      {% else %}
+   ipv6 address {{ ip.address }}
+      {% endif %}
+   {% endfor %}
 !
+   {% endif %}
+{% endfor %}
 no ip routing
 !
 router multicast
