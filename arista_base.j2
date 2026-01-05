@@ -68,6 +68,12 @@ interface Management0
 !
    {% endif %}
 {% endfor %}
+event-handler CONFIG-CHANGE
+   action bash logger "Config Change Detected"
+   !
+   trigger on-logging
+      regex %SYS-5-CONFIG_I
+!
 no ip routing
 !
 router multicast
