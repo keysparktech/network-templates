@@ -1,0 +1,64 @@
+! Command: show running-config
+! device: {{ obj.name }} ({{ obj.items.platform.name }})
+!
+! boot system flash:/vEOS-lab.swi
+!
+no aaa root
+!
+username admin privilege 15 role network-admin secret sha512 $6$Jt2Lh1RiOAAxAgST$VanC1aOvc9beTnIlIFM55PhlUcnXEaBnQnPKuu62r4SOw701u/pUyBTzSCBR51tcOEWf28n67QXjAGlX3/sLH/
+!
+transceiver qsfp default-mode 4x10G
+!
+service routing protocols model ribd
+!
+logging host 192.168.130.1
+logging source-interface Management1
+!
+hostname {{ obj.name }}
+!
+snmp-server community public ro
+!
+spanning-tree mode mstp
+!
+management api http-commands
+   protocol https ssl profile eapiProfile
+   no shutdown
+!
+management security
+   ssl profile eapiProfile
+      certificate eapiCert key eapiKey
+!
+aaa authorization exec default local
+aaa accounting exec default start-stop group tacacs+
+aaa accounting commands all default start-stop group tacacs+
+!
+{% for interface in obj.interfaces.all() %}
+{% if interface.name.startswith("Ethernet") or interface.name.startswith("Management") %}
+interface {{ interface.name }}
+   {% if interface.description %}
+   description {{ interface.description }}
+   {% endif %}
+   {% if interface.mode == "access" %}
+   switchport mode access
+   switchport access vlan {{ interface.untagged_vlan.vid }}
+   {% elif interface.ip_addresses.first() %}
+   no switchport
+   ip address {{ interface.ip_addresses.first().address }}
+      {% if interface.name != "Management1" %}
+   ip ospf area 0.0.0.0
+      {% endif %}
+   {% endif %}
+!
+{% endif %}
+{% endfor %}
+!
+ip routing
+!
+ip route 0.0.0.0/0 192.168.130.2
+!
+router ospf 1
+   router-id {{ obj.primary_ip.address.ip.split('/')[0] if obj.primary_ip else '0.0.0.0' }}
+   redistribute connected
+   max-lsa 12000
+!
+end
