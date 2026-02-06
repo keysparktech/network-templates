@@ -1,0 +1,8 @@
+{# 
+   MINIMAL PLACEHOLDER TEMPLATE 
+   Use this to avoid crashing on large Fortigate configs.
+   Only validates Hostname.
+#}
+config system global
+    set hostname {{ obj.name }}
+end
