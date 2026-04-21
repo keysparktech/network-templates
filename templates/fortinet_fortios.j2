@@ -1,0 +1,50 @@
+config system global
+    set admin-concurrent enable
+    set admin-port 80
+    set admin-sport 443
+    set admin-ssh-port 22
+    set admin-telnet enable
+    set admin-telnet-port 23
+    set admintimeout 5
+    set hostname {{ obj.name }}
+    set timezone 04
+end
+config system interface
+{% for interface in obj.interfaces %}
+    edit "{{ interface.name }}"
+{% if interface.description %}
+        set description "{{ interface.description }}"
+{% endif %}
+{% if interface.enabled %}
+        set status up
+{% else %}
+        set status down
+{% endif %}
+{% for addr in interface.ip_addresses %}
+        set ip {{ addr.address }}
+{% endfor %}
+        set allowaccess ping https ssh snmp
+    next
+{% endfor %}
+end
+config system dns
+    set primary 8.8.8.8
+    set secondary 8.8.4.4
+end
+config log syslogd setting
+    set status enable
+    set server "172.31.31.130"
+end
+config firewall policy
+    edit 1
+        set name "allow-all-outbound"
+        set srcintf "any"
+        set dstintf "any"
+        set srcaddr "all"
+        set dstaddr "all"
+        set action accept
+        set schedule "always"
+        set service "ALL"
+        set logtraffic all
+    next
+end
