@@ -1,64 +1,58 @@
 ! Command: show running-config
-! device: {{ obj.name }} ({{ obj.items.platform.name }})
-!
-! boot system flash:/vEOS-lab.swi
+! device: {{ obj.name }}
 !
 no aaa root
 !
-username admin privilege 15 role network-admin secret sha512 $6$Jt2Lh1RiOAAxAgST$VanC1aOvc9beTnIlIFM55PhlUcnXEaBnQnPKuu62r4SOw701u/pUyBTzSCBR51tcOEWf28n67QXjAGlX3/sLH/
+username admin privilege 15 role network-admin secret sha512 $6$placeholder$hash
 !
-transceiver qsfp default-mode 4x10G
+management api http-commands
+   no shutdown
 !
-service routing protocols model ribd
+no service interface inactive port-id allocation disabled
 !
-logging host 192.168.130.1
-logging source-interface Management1
+service routing protocols model multi-agent
+!
+logging host 172.31.31.130
 !
 hostname {{ obj.name }}
 !
 snmp-server community public ro
+snmp-server host 172.31.31.130 version 2c public
+snmp-server enable traps
 !
 spanning-tree mode mstp
 !
-management api http-commands
-   protocol https ssl profile eapiProfile
-   no shutdown
+system l1
+   unsupported speed action error
+   unsupported error-correction action error
 !
-management security
-   ssl profile eapiProfile
-      certificate eapiCert key eapiKey
-!
-aaa authorization exec default local
-aaa accounting exec default start-stop group tacacs+
-aaa accounting commands all default start-stop group tacacs+
-!
-{% for interface in obj.interfaces.all() %}
-{% if interface.name.startswith("Ethernet") or interface.name.startswith("Management") %}
+{% for interface in obj.interfaces %}
+{% if interface.name.startswith('Ethernet') or interface.name.startswith('Loopback') or interface.name.startswith('Management') %}
 interface {{ interface.name }}
-   {% if interface.description %}
+{% if interface.description %}
    description {{ interface.description }}
-   {% endif %}
-   {% if interface.mode == "access" %}
-   switchport mode access
-   switchport access vlan {{ interface.untagged_vlan.vid }}
-   {% elif interface.ip_addresses.first() %}
+{% endif %}
+{% if interface.name.startswith('Ethernet') or interface.name.startswith('Loopback') %}
+{% if not interface.name.startswith('Loopback') %}
    no switchport
-   ip address {{ interface.ip_addresses.first().address }}
-      {% if interface.name != "Management1" %}
-   ip ospf area 0.0.0.0
-      {% endif %}
-   {% endif %}
+{% endif %}
+{% for addr in interface.ip_addresses %}
+   ip address {{ addr.address }}
+{% endfor %}
+{% endif %}
+{% if interface.name.startswith('Management') %}
+{% for addr in interface.ip_addresses %}
+   ip address {{ addr.address }}
+{% endfor %}
+{% endif %}
 !
 {% endif %}
 {% endfor %}
-!
 ip routing
 !
-ip route 0.0.0.0/0 192.168.130.2
+ip route 172.31.31.130/32 172.20.20.1
 !
-router ospf 1
-   router-id {{ obj.primary_ip.address.ip.split('/')[0] if obj.primary_ip else '0.0.0.0' }}
-   redistribute connected
-   max-lsa 12000
+management ssh
+   authentication mode password
 !
 end
