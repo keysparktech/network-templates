@@ -26,7 +26,7 @@ system l1
    unsupported speed action error
    unsupported error-correction action error
 !
-{% for interface in obj.interfaces %}
+{% for interface in obj.interfaces.all() %}
 {% if interface.name.startswith('Ethernet') or interface.name.startswith('Loopback') or interface.name.startswith('Management') %}
 interface {{ interface.name }}
 {% if interface.description %}
@@ -36,12 +36,12 @@ interface {{ interface.name }}
 {% if not interface.name.startswith('Loopback') %}
    no switchport
 {% endif %}
-{% for addr in interface.ip_addresses %}
+{% for addr in interface.ip_addresses.all() %}
    ip address {{ addr.address }}
 {% endfor %}
 {% endif %}
 {% if interface.name.startswith('Management') %}
-{% for addr in interface.ip_addresses %}
+{% for addr in interface.ip_addresses.all() %}
    ip address {{ addr.address }}
 {% endfor %}
 {% endif %}

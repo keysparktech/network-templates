@@ -10,7 +10,7 @@ config system global
     set timezone 04
 end
 config system interface
-{% for interface in obj.interfaces %}
+{% for interface in obj.interfaces.all() %}
     edit "{{ interface.name }}"
 {% if interface.description %}
         set description "{{ interface.description }}"
@@ -20,7 +20,7 @@ config system interface
 {% else %}
         set status down
 {% endif %}
-{% for addr in interface.ip_addresses %}
+{% for addr in interface.ip_addresses.all() %}
         set ip {{ addr.address }}
 {% endfor %}
         set allowaccess ping https ssh snmp
