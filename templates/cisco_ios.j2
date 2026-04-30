@@ -13,7 +13,7 @@
 {% set snmp_location  = ctx.snmp_location  | default(obj.location.name) %}
 {% set domain_name    = ctx.domain_name    | default('enterprise.local') %}
 {% set mgmt_iface     = ctx.mgmt_interface | default('GigabitEthernet0/0') %}
-{% set mgmt_ip_cidr   = obj.primary_ip4.address %}
+{% set mgmt_ip_cidr   = obj.primary_ip4.address | string %}
 {% set mgmt_ip        = mgmt_ip_cidr.split('/')[0] %}
 {% set is_iosv        = ctx.iosv           | default(false) %}
 {% if is_iosv %}
