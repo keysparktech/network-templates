@@ -1,50 +1,98 @@
+{# ============================================================ #}
+{# fortinet.j2  Nautobot Golden Config Jinja2 Template         #}
+{# Covers FortiGate/FortiOS devices                            #}
+{# All device-specific values come from config_context         #}
+{# ============================================================ #}
+{% set ctx           = obj.config_context %}
+{% set dns_server    = ctx.dns_server    | default('172.20.21.100') %}
+{% set ntp_server    = ctx.ntp_server    | default('172.20.21.100') %}
+{% set syslog_server = ctx.syslog_server | default('172.20.21.100') %}
+{% set snmp_host     = ctx.snmp_host     | default('172.20.21.100') %}
+{% set snmp_community = ctx.snmp_community | default('public') %}
+{% set timezone      = ctx.timezone      | default('04') %}
 config system global
-    set admin-concurrent enable
-    set admin-port 80
-    set admin-sport 443
-    set admin-ssh-port 22
-    set admin-telnet enable
-    set admin-telnet-port 23
-    set admintimeout 5
     set hostname {{ obj.name }}
-    set timezone 04
+    set timezone {{ timezone }}
+end
+config system dns
+    set primary {{ dns_server }}
+end
+config system ntp
+    set ntpsync enable
+    config ntpserver
+        edit 1
+            set server {{ ntp_server }}
+        next
+    end
 end
 config system interface
-{% for interface in obj.interfaces.all() %}
-    edit "{{ interface.name }}"
-{% if interface.description %}
-        set description "{{ interface.description }}"
+{% for iface in ctx.interfaces | default([]) %}
+    edit {{ iface.name }}
+{% if iface.description is defined and iface.description %}
+        set description "{{ iface.description }}"
 {% endif %}
-{% if interface.enabled %}
-        set status up
+{% if iface.mode | default('') == 'dhcp' %}
+        set mode dhcp
 {% else %}
-        set status down
+        set ip {{ iface.ip }} {{ iface.mask }}
 {% endif %}
-{% for addr in interface.ip_addresses.all() %}
-        set ip {{ addr.address }}
-{% endfor %}
-        set allowaccess ping https ssh snmp
+        set allowaccess {{ iface.allowaccess | default('ssh https ping snmp') }}
     next
 {% endfor %}
 end
-config system dns
-    set primary 8.8.8.8
-    set secondary 8.8.4.4
+config router static
+{% for route in ctx.static_routes | default([]) %}
+    edit {{ loop.index }}
+        set dst {{ route.dst }}
+        set gateway {{ route.gateway }}
+        set device {{ route.device }}
+    next
+{% endfor %}
+end
+config firewall policy
+{% for policy in ctx.firewall_policies | default([]) %}
+    edit {{ policy.id }}
+        set name "{{ policy.name }}"
+        set srcintf {{ policy.srcintf }}
+        set dstintf {{ policy.dstintf }}
+        set srcaddr all
+        set dstaddr all
+        set action {{ policy.action }}
+        set schedule always
+        set service ALL
+{% if policy.nat | default(false) %}
+        set nat enable
+{% endif %}
+    next
+{% endfor %}
+end
+config system snmp sysinfo
+    set status enable
+    set trap-high-cpu-threshold 80
+    set trap-low-memory-threshold 20
+end
+config system snmp community
+    edit 1
+        set name {{ snmp_community }}
+        config hosts
+            edit 1
+                set ip {{ snmp_host }} 255.255.255.255
+            next
+            edit 2
+                set ip 0.0.0.0 0.0.0.0
+            next
+        end
+        set events cpu-high mem-low intf-ip vpn-tun-up vpn-tun-down
+        set trap-v2c-status enable
+    next
 end
 config log syslogd setting
     set status enable
-    set server "172.31.31.130"
+    set server {{ syslog_server }}
+    set port 514
+    set facility local7
+    set format default
 end
-config firewall policy
-    edit 1
-        set name "allow-all-outbound"
-        set srcintf "any"
-        set dstintf "any"
-        set srcaddr "all"
-        set dstaddr "all"
-        set action accept
-        set schedule "always"
-        set service "ALL"
-        set logtraffic all
-    next
+config log syslogd filter
+    set severity information
 end

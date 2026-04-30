@@ -1,13 +1,35 @@
+{# ============================================================ #}
+{# cisco_ios.j2  Nautobot Golden Config Jinja2 Template        #}
+{# Covers Cisco IOSv devices (dist1, core-cisco, access-cisco) #}
+{# All device-specific values come from config_context         #}
+{# ============================================================ #}
+{% set ctx            = obj.config_context %}
+{% set ntp_server     = ctx.ntp_server     | default('172.20.21.100') %}
+{% set syslog_server  = ctx.syslog_server  | default('172.20.21.100') %}
+{% set dns_server     = ctx.dns_server     | default('172.20.21.100') %}
+{% set snmp_host      = ctx.snmp_host      | default('172.20.21.100') %}
+{% set snmp_community = ctx.snmp_community | default('public') %}
+{% set snmp_contact   = ctx.snmp_contact   | default('admin@enterprise.local') %}
+{% set snmp_location  = ctx.snmp_location  | default(obj.location.name) %}
+{% set domain_name    = ctx.domain_name    | default('enterprise.local') %}
+{% set mgmt_iface     = ctx.mgmt_interface | default('GigabitEthernet0/0') %}
+{% set mgmt_ip_cidr   = obj.primary_ip4.address %}
+{% set mgmt_ip        = mgmt_ip_cidr.split('/')[0] %}
+{% set is_iosv        = ctx.iosv           | default(false) %}
+{% if is_iosv %}
 !
 version 15.9
 service timestamps debug datetime msec
 service timestamps log datetime msec
 no service password-encryption
 !
+{% endif %}
 hostname {{ obj.name }}
+{% if is_iosv %}
 !
 boot-start-marker
 boot-end-marker
+!
 !
 no aaa new-model
 !
@@ -16,111 +38,96 @@ no mmi auto-configure
 no mmi pvc
 mmi snmp-timeout 180
 !
-ip domain name lab.local
+{% endif %}
+!
+no ip domain-lookup
+ip domain-name {{ domain_name }}
+ip name-server {{ dns_server }}
+{% if is_iosv %}
 ip cef
 no ipv6 cef
 !
 multilink bundle-name authenticated
 !
-username admin privilege 15 password 0 admin123
+{% endif %}
 !
+username admin privilege 15 secret {{ ctx.admin_password | default('admin@123') }}
+!
+{% if is_iosv %}
 redundancy
 !
+{% endif %}
 lldp run
 !
-{% for interface in obj.interfaces.all() %}
-interface {{ interface.name }}
- {% if interface.description %}
- description {{ interface.description }}
- {% endif %}
- {% if interface.ip_addresses.first() %}
- ip address {{ interface.ip_addresses.first().host }} {{ interface.ip_addresses.first().netmask }}
+interface {{ mgmt_iface }}
+ description mgmt
+ ip address {{ mgmt_ip }} 255.255.255.0
+ no shutdown
+{% if is_iosv %}
  duplex auto
  speed auto
  media-type rj45
- {% else %}
- no ip address
- shutdown
+{% endif %}
+!
+{% for iface in ctx.routed_interfaces | default([]) %}
+interface {{ iface.name }}
+{% if iface.description | default('') %}
+ description {{ iface.description }}
+{% endif %}
+ ip address {{ iface.ip }} {{ iface.mask }}
+ no shutdown
+{% if is_iosv %}
  duplex auto
  speed auto
  media-type rj45
- {% endif %}
+{% endif %}
 !
 {% endfor %}
-router ospf 1
- network 10.0.0.0 0.255.255.255 area 0
+ip routing
 !
+{% if ctx.ospf is defined %}
+router ospf 1
+ router-id {{ ctx.ospf.router_id }}
+{% if ctx.ospf.passive_interface is defined %}
+ passive-interface {{ ctx.ospf.passive_interface }}
+{% endif %}
+{% for net in ctx.ospf.networks | default([]) %}
+ network {{ net.prefix }} {{ net.wildcard }} area {{ net.area }}
+{% endfor %}
+!
+{% endif %}
 ip forward-protocol nd
 !
 no ip http server
 no ip http secure-server
-ip route 0.0.0.0 0.0.0.0 192.168.130.2
+ip ssh version 2
 !
-logging facility local6
-{% for interface in obj.interfaces.all() %}
-{% if "GigabitEthernet0/0" in interface.name %}
-logging source-interface {{ interface.name }}
+logging source-interface {{ mgmt_iface }}
+logging host {{ syslog_server }}
+{% if not is_iosv %}
+logging trap informational
+logging on
 {% endif %}
-{% endfor %}
-logging host 192.168.130.1
-ipv6 ioam timestamp
 !
-snmp-server community public RO
-snmp-server chassis-id 
+snmp-server community {{ snmp_community }} RO
+snmp-server host {{ snmp_host }} version 2c {{ snmp_community }}
+snmp-server enable traps snmp linkdown linkup coldstart
+snmp-server enable traps config
+snmp-server contact {{ snmp_contact }}
+snmp-server location {{ snmp_location }}
 !
+{% if is_iosv %}
 control-plane
 !
-banner exec ^C
-**************************************************************************
-* IOSv is strictly limited to use for evaluation, demonstration and IOS  *
-* education. IOSv is provided as-is and is not supported by Cisco's      *
-* Technical Advisory Center. Any use or disclosure, in whole or in part, *
-* of the IOSv Software or Documentation to any third party for any       *
-* purposes is expressly prohibited except as otherwise authorized by     *
-* Cisco in writing.                                                      *
-**************************************************************************^C
-banner incoming ^C
-**************************************************************************
-* IOSv is strictly limited to use for evaluation, demonstration and IOS  *
-* education. IOSv is provided as-is and is not supported by Cisco's      *
-* Technical Advisory Center. Any use or disclosure, in whole or in part, *
-* of the IOSv Software or Documentation to any third party for any       *
-* purposes is expressly prohibited except as otherwise authorized by     *
-* Cisco in writing.                                                      *
-**************************************************************************^C
-banner login ^C
-**************************************************************************
-* IOSv is strictly limited to use for evaluation, demonstration and IOS  *
-* education. IOSv is provided as-is and is not supported by Cisco's      *
-* Technical Advisory Center. Any use or disclosure, in whole or in part, *
-* of the IOSv Software or Documentation to any third party for any       *
-* purposes is expressly prohibited except as otherwise authorized by     *
-* Cisco in writing.                                                      *
-**************************************************************************^C
-!
+{% endif %}
 line con 0
-line aux 0
+ login local
 line vty 0 4
  login local
- length 0
- width 512
  transport input ssh
-line vty 5 15
- login
- length 0
- width 512
- transport input none
 !
-no scheduler allocate
-event manager applet NO_PAGING
- event none
- action 1.0 cli command "enable"
- action 2.0 cli command "terminal length 0"
- action 3.0 cli command "terminal width 512"
-event manager applet force_no_pager
- event syslog pattern "SYS-5-LOGIN_SESSION"
- action 1.0 cli command "enable"
- action 2.0 cli command "terminal length 0"
- action 3.0 cli command "exit"
+ntp server {{ ntp_server }}
 !
+{% if not is_iosv %}
 end
+{% endif %}
