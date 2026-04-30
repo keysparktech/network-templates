@@ -3,7 +3,7 @@
 {# Covers FortiGate/FortiOS devices                            #}
 {# All device-specific values come from config_context         #}
 {# ============================================================ #}
-{% set ctx           = obj.config_context %}
+{% set ctx           = obj.get_config_context() %}
 {% set dns_server    = ctx.dns_server    | default('172.20.21.100') %}
 {% set ntp_server    = ctx.ntp_server    | default('172.20.21.100') %}
 {% set syslog_server = ctx.syslog_server | default('172.20.21.100') %}
