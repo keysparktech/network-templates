@@ -11,7 +11,7 @@
 {% set snmp_community = ctx.snmp_community | default('public') %}
 {% set timezone      = ctx.timezone      | default('04') %}
 config system global
-    set hostname {{ obj.name }}
+    set hostname "{{ obj.name }}"
     set timezone {{ timezone }}
 end
 config system dns
@@ -21,7 +21,7 @@ config system ntp
     set ntpsync enable
     config ntpserver
         edit 1
-            set server {{ ntp_server }}
+            set server "{{ ntp_server }}"
         next
     end
 end
@@ -73,7 +73,7 @@ config system snmp sysinfo
 end
 config system snmp community
     edit 1
-        set name {{ snmp_community }}
+        set name "{{ snmp_community }}"
         config hosts
             edit 1
                 set ip {{ snmp_host }} 255.255.255.255
@@ -88,7 +88,7 @@ config system snmp community
 end
 config log syslogd setting
     set status enable
-    set server {{ syslog_server }}
+    set server "{{ syslog_server }}"
     set port 514
     set facility local7
     set format default
