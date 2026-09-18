@@ -1,0 +1,91 @@
+{% set ctx             = obj.get_config_context() %}
+{% set ntp_server      = ctx.ntp_server       | default('172.20.21.100') %}
+{% set syslog_server   = ctx.syslog_server    | default('172.20.21.1') %}
+{% set syslog_port     = ctx.syslog_port      | default(5514) %}
+{% set dns_server      = ctx.dns_server       | default('172.20.21.100') %}
+{% set snmp_host       = ctx.snmp_host        | default('172.20.21.1') %}
+{% set snmp_community  = ctx.snmp_community   | default('public') %}
+{% set snmp_contact    = ctx.snmp_contact     | default('admin@enterprise.local') %}
+{% set snmp_location   = ctx.snmp_location    | default(obj.location.name) %}
+{% set mgmt_ip         = obj.primary_ip4.address %}
+{% set mgmt_iface      = ctx.mgmt_interface   | default('Management1') %}
+{% set routing_model   = ctx.routing_model    | default('ribd') %}
+no aaa root
+!
+username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
+!
+transceiver qsfp default-mode 4x10G
+!
+service routing protocols model {{ routing_model }}
+!
+logging host {{ syslog_server }} {{ syslog_port }}
+!
+hostname {{ obj.name }}
+ip name-server vrf default {{ dns_server }}
+!
+snmp-server contact {{ snmp_contact }}
+snmp-server location {{ snmp_location }}
+snmp-server community {{ snmp_community }} ro
+snmp-server host {{ snmp_host }} version 2c {{ snmp_community }}
+snmp-server enable traps
+!
+spanning-tree mode mstp
+!
+management api http-commands
+   protocol unix-socket
+   no shutdown
+!
+{% if ctx.mgmt_api_gnmi | default(true) %}
+management api gnmi
+   transport grpc default
+!
+{% endif %}
+{% if ctx.mgmt_api_netconf | default(true) %}
+management api netconf
+   transport ssh default
+!
+{% endif %}
+{% for iface in ctx.routed_interfaces | default([]) %}
+interface {{ iface.name }}
+{% if iface.description | default('') %}
+   description {{ iface.description }}
+{% endif %}
+   no switchport
+   ip address {{ iface.ip_address }}
+!
+{% endfor %}
+interface {{ mgmt_iface }}
+   ip address {{ mgmt_ip }}
+!
+event-handler FIX-SNMP
+   trigger on-boot
+   action bash sudo ip addr add {{ mgmt_ip }} dev vmnicet1
+!
+ip routing
+!
+{% for route in ctx.static_routes | default([]) %}
+ip route {{ route.prefix }} {{ route.next_hop }}
+{% endfor %}
+{% if ctx.static_routes is defined and ctx.static_routes | length > 0 %}
+!
+{% endif %}
+ntp server {{ ntp_server }}
+!
+{% if ctx.ospf is defined %}
+router ospf 1
+   router-id {{ ctx.ospf.router_id }}
+{% if ctx.ospf.passive_interface is defined %}
+   passive-interface {{ ctx.ospf.passive_interface }}
+{% endif %}
+{% for net in ctx.ospf.networks | default([]) %}
+   network {{ net.prefix }} area {{ net.area }}
+{% endfor %}
+{% if ctx.ospf.max_lsa | default(true) %}
+   max-lsa 12000
+{% endif %}
+!
+{% endif %}
+management ssh
+   authentication mode password
+!
+end

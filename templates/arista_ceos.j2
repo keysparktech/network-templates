@@ -1,0 +1,80 @@
+{% set ctx             = obj.get_config_context() %}
+{% set ntp_server      = ctx.ntp_server       | default('172.20.21.100') %}
+{% set syslog_server   = ctx.syslog_server    | default('172.20.21.1') %}
+{% set syslog_port     = ctx.syslog_port      | default(5514) %}
+{% set dns_server      = ctx.dns_server       | default('172.20.21.100') %}
+{% set snmp_host       = ctx.snmp_host        | default('172.20.21.1') %}
+{% set snmp_community  = ctx.snmp_community   | default('public') %}
+{% set snmp_contact    = ctx.snmp_contact     | default('admin@enterprise.local') %}
+{% set snmp_location   = ctx.snmp_location    | default(obj.location.name) %}
+{% set mgmt_ip         = obj.primary_ip4.address %}
+{% set mgmt_iface      = ctx.mgmt_interface   | default('Management0') %}
+{% set routing_model   = ctx.routing_model    | default('multi-agent') %}
+no aaa root
+!
+username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
+!
+management api http-commands
+   no shutdown
+!
+no service interface inactive port-id allocation disabled
+!
+service routing protocols model {{ routing_model }}
+!
+logging host {{ syslog_server }} {{ syslog_port }}
+!
+hostname {{ obj.name }}
+ip name-server vrf default {{ dns_server }}
+!
+snmp-server contact {{ snmp_contact }}
+snmp-server location {{ snmp_location }}
+snmp-server community {{ snmp_community }} ro
+snmp-server host {{ snmp_host }} version 2c {{ snmp_community }}
+snmp-server enable traps
+!
+spanning-tree mode mstp
+!
+system l1
+   unsupported speed action error
+   unsupported error-correction action error
+!
+{% for iface in ctx.routed_interfaces | default([]) %}
+interface {{ iface.name }}
+{% if iface.description | default('') %}
+   description {{ iface.description }}
+{% endif %}
+   no switchport
+   ip address {{ iface.ip_address }}
+!
+{% endfor %}
+interface {{ mgmt_iface }}
+   ip address {{ mgmt_ip }}
+!
+ip routing
+!
+{% for route in ctx.static_routes | default([]) %}
+ip route {{ route.prefix }} {{ route.next_hop }}
+{% endfor %}
+{% if ctx.static_routes is defined and ctx.static_routes | length > 0 %}
+!
+{% endif %}
+ntp server {{ ntp_server }}
+!
+{% if ctx.ospf is defined %}
+router ospf 1
+   router-id {{ ctx.ospf.router_id }}
+{% for net in ctx.ospf.networks | default([]) %}
+   network {{ net.prefix }} area {{ net.area }}
+{% endfor %}
+{% if ctx.ospf.max_lsa | default(true) %}
+   max-lsa 12000
+{% endif %}
+{% if ctx.ospf.default_information_originate | default(false) %}
+   default-information originate
+{% endif %}
+!
+{% endif %}
+management ssh
+   authentication mode password
+!
+end
