@@ -8,6 +8,7 @@
 {% set is_veos         = ctx.veos             | default(false) %}
 {% set ntp_server      = ctx.ntp_server       | default('172.20.21.100') %}
 {% set syslog_server   = ctx.syslog_server    | default('172.20.21.1') %}
+{% set syslog_port     = ctx.syslog_port      | default(5514) %}
 {% set dns_server      = ctx.dns_server       | default('172.20.21.100') %}
 {% set snmp_host       = ctx.snmp_host        | default('172.20.21.1') %}
 {% set snmp_community  = ctx.snmp_community   | default('public') %}
@@ -15,6 +16,7 @@
 {% set snmp_location   = ctx.snmp_location    | default(obj.location.name) %}
 {% set domain_name     = ctx.domain_name      | default('enterprise.local') %}
 {% set mgmt_iface      = ctx.mgmt_interface   | default('Management1' if is_veos else 'Management0') %}
+{% set routing_model   = ctx.routing_model    | default('multi-agent') %}
 {% set mgmt_ip         = obj.primary_ip4.address %}
 {% if is_veos %}
 {# ── vEOS (EOS 4.28.x) ──────────────────────────────────── #}
@@ -63,7 +65,7 @@ snmp-server enable traps
 snmp-server contact {{ snmp_contact }}
 snmp-server location {{ snmp_location }}
 !
-logging host {{ syslog_server }}
+logging host {{ syslog_server }} {{ syslog_port }}
 logging trap informational
 logging on
 !
@@ -87,9 +89,9 @@ management api http-commands
 !
 no service interface inactive port-id allocation disabled
 !
-service routing protocols model multi-agent
+service routing protocols model {{ routing_model }}
 !
-logging host {{ syslog_server }}
+logging host {{ syslog_server }} {{ syslog_port }}
 !
 hostname {{ obj.name }}
 ip name-server vrf default {{ dns_server }}
