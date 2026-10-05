@@ -4,229 +4,230 @@
 {#   cEOS (EOS 4.35, Management0, multi-agent)  -> ctx.veos = false  #}
 {#   vEOS (EOS 4.28, Management1, ribd)         -> ctx.veos = true   #}
 {# All device-specific values come from config_context.             #}
-{# Universal sections are conditional: no data -> no output, so      #}
-{# existing devices render exactly as before; richer context = more. #}
+{# Plain {% %} tags only — relies on trim_blocks=True (GC default).  #}
+{# Do NOT add {%- -%} / {#- -#} dashes: under trim_blocks they eat   #}
+{# the newlines between config lines and glue commands together.     #}
 {# ================================================================= #}
-{%- set ctx           = obj.get_config_context() -%}
-{%- set is_veos       = ctx.veos            | default(false) -%}
-{%- set mgmt_iface    = ctx.mgmt_interface  | default('Management1' if is_veos else 'Management0') -%}
-{%- set routing_model = ctx.routing_model   | default('ribd' if is_veos else 'multi-agent') -%}
-{%- set ntp_server    = ctx.ntp_server      | default('172.20.21.100') -%}
-{%- set syslog_server = ctx.syslog_server   | default('172.20.21.1') -%}
-{%- set syslog_port   = ctx.syslog_port     | default(5514) -%}
-{%- set dns_server    = ctx.dns_server      | default('172.20.21.100') -%}
-{%- set snmp_host     = ctx.snmp_host       | default('172.20.21.1') -%}
-{%- set snmp_community = ctx.snmp_community  | default('public') -%}
-{%- set snmp_contact  = ctx.snmp_contact    | default('admin@enterprise.local') -%}
-{%- set snmp_location = ctx.snmp_location    | default(obj.location.name) -%}
-{%- set domain_name   = ctx.domain_name     | default('enterprise.local') -%}
-{%- set mgmt_ip       = obj.primary_ip4.address -%}
+{% set ctx           = obj.get_config_context() %}
+{% set is_veos       = ctx.veos            | default(false) %}
+{% set mgmt_iface    = ctx.mgmt_interface  | default('Management1' if is_veos else 'Management0') %}
+{% set routing_model = ctx.routing_model   | default('ribd' if is_veos else 'multi-agent') %}
+{% set ntp_server    = ctx.ntp_server      | default('172.20.21.100') %}
+{% set syslog_server = ctx.syslog_server   | default('172.20.21.1') %}
+{% set syslog_port   = ctx.syslog_port     | default(5514) %}
+{% set dns_server    = ctx.dns_server      | default('172.20.21.100') %}
+{% set snmp_host     = ctx.snmp_host       | default('172.20.21.1') %}
+{% set snmp_community = ctx.snmp_community  | default('public') %}
+{% set snmp_contact  = ctx.snmp_contact    | default('admin@enterprise.local') %}
+{% set snmp_location = ctx.snmp_location    | default(obj.location.name) %}
+{% set domain_name   = ctx.domain_name     | default('enterprise.local') %}
+{% set mgmt_ip       = obj.primary_ip4.address %}
 !
-{#- ===================== AAA / users ===================== #}
+{# ===================== AAA / users ===================== #}
 no aaa root
 !
 username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
-{%- for u in ctx.users | default([]) %}
+{% for u in ctx.users | default([]) %}
 username {{ u.name }} privilege {{ u.privilege | default('15') }}{% if u.role is defined %} role {{ u.role }}{% endif %}{% if u.nopassword | default(false) %} nopassword{% elif u.secret_hash is defined %} secret sha512 {{ u.secret_hash }}{% endif %}
-{%- endfor %}
-{%- for s in ctx.tacacs_servers | default([]) %}
+{% endfor %}
+{% for s in ctx.tacacs_servers | default([]) %}
 tacacs-server host {{ s.host }}{% if s.vrf is defined %} vrf {{ s.vrf }}{% endif %}{% if s.key is defined %} key 7 {{ s.key }}{% endif %}
-{%- endfor %}
-{%- for s in ctx.radius_servers | default([]) %}
+{% endfor %}
+{% for s in ctx.radius_servers | default([]) %}
 radius-server host {{ s.host }}{% if s.vrf is defined %} vrf {{ s.vrf }}{% endif %}{% if s.key is defined %} key 7 {{ s.key }}{% endif %}
-{%- endfor %}
-{%- for line in ctx.aaa_authentication | default([]) %}
+{% endfor %}
+{% for line in ctx.aaa_authentication | default([]) %}
 aaa authentication {{ line }}
-{%- endfor %}
+{% endfor %}
 !
-{#- ===================== platform housekeeping ===================== #}
-{%- if is_veos %}
+{# ===================== platform housekeeping ===================== #}
+{% if is_veos %}
 transceiver qsfp default-mode 4x10G
-{%- else %}
+{% else %}
 no service interface inactive port-id allocation disabled
-{%- endif %}
+{% endif %}
 !
 service routing protocols model {{ routing_model }}
-{%- if not is_veos %}
+{% if not is_veos %}
 !
 system l1
    unsupported speed action error
    unsupported error-correction action error
-{%- endif %}
+{% endif %}
 !
-{#- ===================== identity / DNS ===================== #}
+{# ===================== identity / DNS ===================== #}
 hostname {{ obj.name }}
-{%- if domain_name %}
+{% if domain_name %}
 ip domain-name {{ domain_name }}
-{%- endif %}
-{%- if ctx.dns_servers is defined %}
-{%- for d in ctx.dns_servers %}
+{% endif %}
+{% if ctx.dns_servers is defined %}
+{% for d in ctx.dns_servers %}
 ip name-server vrf default {{ d }}
-{%- endfor %}
-{%- else %}
+{% endfor %}
+{% else %}
 ip name-server vrf default {{ dns_server }}
-{%- endif %}
-{%- if is_veos %}
+{% endif %}
+{% if is_veos %}
 lldp run
-{%- endif %}
+{% endif %}
 !
-{#- ===================== logging ===================== #}
+{# ===================== logging ===================== #}
 logging host {{ syslog_server }} {{ syslog_port }}
-{%- for h in ctx.extra_syslog_hosts | default([]) %}
+{% for h in ctx.extra_syslog_hosts | default([]) %}
 logging host {{ h.host | default(h) }}{% if h.port is defined %} {{ h.port }}{% endif %}
-{%- endfor %}
+{% endfor %}
 logging trap {{ ctx.logging_trap_level | default('informational') }}
 logging on
 !
-{#- ===================== SNMP ===================== #}
+{# ===================== SNMP ===================== #}
 snmp-server contact {{ snmp_contact }}
 snmp-server location {{ snmp_location }}
-{%- if ctx.snmp_communities is defined %}
-{%- for c in ctx.snmp_communities %}
+{% if ctx.snmp_communities is defined %}
+{% for c in ctx.snmp_communities %}
 snmp-server community {{ c.name }} {{ c.mode | default('ro') }}
-{%- endfor %}
-{%- else %}
+{% endfor %}
+{% else %}
 snmp-server community {{ snmp_community }} ro
-{%- endif %}
+{% endif %}
 snmp-server host {{ snmp_host }} version 2c {{ snmp_community }}
-{%- for u in ctx.snmp_v3_users | default([]) %}
+{% for u in ctx.snmp_v3_users | default([]) %}
 snmp-server user {{ u.name }} {{ u.group }} v3{% if u.auth is defined %} auth {{ u.auth.proto }} {{ u.auth.pass }}{% endif %}{% if u.priv is defined %} priv {{ u.priv.proto }} {{ u.priv.pass }}{% endif %}
-{%- endfor %}
+{% endfor %}
 snmp-server enable traps
 !
-{#- ===================== spanning-tree ===================== #}
+{# ===================== spanning-tree ===================== #}
 spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
 !
-{#- ===================== VLANs ===================== #}
-{%- for v in ctx.vlans | default([]) %}
+{# ===================== VLANs ===================== #}
+{% for v in ctx.vlans | default([]) %}
 vlan {{ v.id }}
-{%- if v.name is defined %}
+{% if v.name is defined %}
    name {{ v.name }}
-{%- endif %}
+{% endif %}
 !
-{%- endfor %}
-{#- ===================== management APIs ===================== #}
+{% endfor %}
+{# ===================== management APIs ===================== #}
 management api http-commands
-{%- if is_veos %}
+{% if is_veos %}
    protocol unix-socket
-{%- endif %}
+{% endif %}
    no shutdown
-{%- if is_veos and ctx.mgmt_api_gnmi | default(true) %}
+{% if is_veos and ctx.mgmt_api_gnmi | default(true) %}
 !
 management api gnmi
    transport grpc default
-{%- endif %}
-{%- if is_veos and ctx.mgmt_api_netconf | default(true) %}
+{% endif %}
+{% if is_veos and ctx.mgmt_api_netconf | default(true) %}
 !
 management api netconf
    transport ssh default
-{%- endif %}
+{% endif %}
 !
-{#- ===================== interfaces ===================== #}
-{%- for iface in ctx.routed_interfaces | default([]) %}
+{# ===================== interfaces ===================== #}
+{% for iface in ctx.routed_interfaces | default([]) %}
 interface {{ iface.name }}
-{%- if iface.description | default('') %}
+{% if iface.description | default('') %}
    description {{ iface.description }}
-{%- endif %}
+{% endif %}
    no switchport
    ip address {{ iface.ip_address }}
 !
-{%- endfor %}
-{%- for iface in ctx.switched_interfaces | default([]) %}
+{% endfor %}
+{% for iface in ctx.switched_interfaces | default([]) %}
 interface {{ iface.name }}
-{%- if iface.description | default('') %}
+{% if iface.description | default('') %}
    description {{ iface.description }}
-{%- endif %}
-{%- if iface.mode | default('access') == 'access' %}
+{% endif %}
+{% if iface.mode | default('access') == 'access' %}
    switchport access vlan {{ iface.vlan | default(1) }}
-{%- else %}
+{% else %}
    switchport mode trunk
-{%- if iface.native_vlan is defined %}
+{% if iface.native_vlan is defined %}
    switchport trunk native vlan {{ iface.native_vlan }}
-{%- endif %}
-{%- if iface.trunk_vlans is defined %}
+{% endif %}
+{% if iface.trunk_vlans is defined %}
    switchport trunk allowed vlan {{ iface.trunk_vlans }}
-{%- endif %}
-{%- endif %}
+{% endif %}
+{% endif %}
 !
-{%- endfor %}
+{% endfor %}
 interface {{ mgmt_iface }}
    ip address {{ mgmt_ip }}
 !
-{%- if is_veos %}
+{% if is_veos %}
 event-handler FIX-SNMP
    trigger on-boot
    action bash sudo ip addr add {{ mgmt_ip }} dev vmnicet1
 !
-{%- endif %}
-{#- ===================== routing ===================== #}
+{% endif %}
+{# ===================== routing ===================== #}
 ip routing
 !
-{%- if ctx.default_gateway is defined %}
+{% if ctx.default_gateway is defined %}
 ip route 0.0.0.0/0 {{ ctx.default_gateway }}
-{%- endif %}
-{%- for route in ctx.static_routes | default([]) %}
+{% endif %}
+{% for route in ctx.static_routes | default([]) %}
 ip route {{ route.prefix }} {{ route.next_hop }}
-{%- endfor %}
+{% endfor %}
 !
-{#- ===================== NTP ===================== #}
-{%- if ctx.ntp_servers is defined %}
-{%- for n in ctx.ntp_servers %}
+{# ===================== NTP ===================== #}
+{% if ctx.ntp_servers is defined %}
+{% for n in ctx.ntp_servers %}
 ntp server {{ n }}
-{%- endfor %}
-{%- else %}
+{% endfor %}
+{% else %}
 ntp server {{ ntp_server }}
-{%- endif %}
+{% endif %}
 !
-{#- ===================== OSPF ===================== #}
-{%- if ctx.ospf is defined %}
+{# ===================== OSPF ===================== #}
+{% if ctx.ospf is defined %}
 router ospf 1
    router-id {{ ctx.ospf.router_id }}
-{%- if ctx.ospf.passive_interface is defined %}
+{% if ctx.ospf.passive_interface is defined %}
    passive-interface {{ ctx.ospf.passive_interface }}
-{%- endif %}
-{%- for net in ctx.ospf.networks | default([]) %}
+{% endif %}
+{% for net in ctx.ospf.networks | default([]) %}
    network {{ net.prefix }} area {{ net.area }}
-{%- endfor %}
-{%- if ctx.ospf.max_lsa | default(true) %}
+{% endfor %}
+{% if ctx.ospf.max_lsa | default(true) %}
    max-lsa 12000
-{%- endif %}
-{%- if ctx.ospf.default_information_originate | default(false) %}
+{% endif %}
+{% if ctx.ospf.default_information_originate | default(false) %}
    default-information originate
-{%- endif %}
+{% endif %}
 !
-{%- endif %}
-{#- ===================== BGP ===================== #}
-{%- if ctx.bgp is defined %}
+{% endif %}
+{# ===================== BGP ===================== #}
+{% if ctx.bgp is defined %}
 router bgp {{ ctx.bgp.asn }}
-{%- if ctx.bgp.router_id is defined %}
+{% if ctx.bgp.router_id is defined %}
    router-id {{ ctx.bgp.router_id }}
-{%- endif %}
-{%- for n in ctx.bgp.neighbors | default([]) %}
+{% endif %}
+{% for n in ctx.bgp.neighbors | default([]) %}
    neighbor {{ n.ip }} remote-as {{ n.remote_as }}
-{%- if n.description is defined %}
+{% if n.description is defined %}
    neighbor {{ n.ip }} description {{ n.description }}
-{%- endif %}
-{%- if n.update_source is defined %}
+{% endif %}
+{% if n.update_source is defined %}
    neighbor {{ n.ip }} update-source {{ n.update_source }}
-{%- endif %}
-{%- if n.next_hop_self | default(false) %}
+{% endif %}
+{% if n.next_hop_self | default(false) %}
    neighbor {{ n.ip }} next-hop-self
-{%- endif %}
-{%- endfor %}
-{%- for net in ctx.bgp.networks | default([]) %}
+{% endif %}
+{% endfor %}
+{% for net in ctx.bgp.networks | default([]) %}
    network {{ net }}
-{%- endfor %}
-{%- for r in ctx.bgp.redistribute | default([]) %}
+{% endfor %}
+{% for r in ctx.bgp.redistribute | default([]) %}
    redistribute {{ r }}
-{%- endfor %}
+{% endfor %}
 !
-{%- endif %}
-{#- ===================== management ssh ===================== #}
+{% endif %}
+{# ===================== management ssh ===================== #}
 management ssh
-{%- if is_veos %}
+{% if is_veos %}
    idle-timeout {{ ctx.ssh_idle_timeout | default(0) }}
-{%- endif %}
+{% endif %}
    authentication mode password
 !
 end
