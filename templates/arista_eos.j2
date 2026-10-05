@@ -9,10 +9,8 @@
 {# ================================================================= #}
 {%- set ctx           = obj.get_config_context() -%}
 {%- set is_veos       = ctx.veos            | default(false) -%}
-{#- platform-branched defaults -#}
 {%- set mgmt_iface    = ctx.mgmt_interface  | default('Management1' if is_veos else 'Management0') -%}
 {%- set routing_model = ctx.routing_model   | default('ribd' if is_veos else 'multi-agent') -%}
-{#- common defaults (unchanged from your templates) -#}
 {%- set ntp_server    = ctx.ntp_server      | default('172.20.21.100') -%}
 {%- set syslog_server = ctx.syslog_server   | default('172.20.21.1') -%}
 {%- set syslog_port   = ctx.syslog_port     | default(5514) -%}
@@ -24,7 +22,7 @@
 {%- set domain_name   = ctx.domain_name     | default('enterprise.local') -%}
 {%- set mgmt_ip       = obj.primary_ip4.address -%}
 !
-{#- ===================== AAA / users ===================== -#}
+{#- ===================== AAA / users ===================== #}
 no aaa root
 !
 username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
@@ -41,7 +39,7 @@ radius-server host {{ s.host }}{% if s.vrf is defined %} vrf {{ s.vrf }}{% endif
 aaa authentication {{ line }}
 {%- endfor %}
 !
-{#- ===================== platform housekeeping ===================== -#}
+{#- ===================== platform housekeeping ===================== #}
 {%- if is_veos %}
 transceiver qsfp default-mode 4x10G
 {%- else %}
@@ -56,7 +54,7 @@ system l1
    unsupported error-correction action error
 {%- endif %}
 !
-{#- ===================== identity / DNS ===================== -#}
+{#- ===================== identity / DNS ===================== #}
 hostname {{ obj.name }}
 {%- if domain_name %}
 ip domain-name {{ domain_name }}
@@ -72,7 +70,7 @@ ip name-server vrf default {{ dns_server }}
 lldp run
 {%- endif %}
 !
-{#- ===================== logging ===================== -#}
+{#- ===================== logging ===================== #}
 logging host {{ syslog_server }} {{ syslog_port }}
 {%- for h in ctx.extra_syslog_hosts | default([]) %}
 logging host {{ h.host | default(h) }}{% if h.port is defined %} {{ h.port }}{% endif %}
@@ -80,7 +78,7 @@ logging host {{ h.host | default(h) }}{% if h.port is defined %} {{ h.port }}{% 
 logging trap {{ ctx.logging_trap_level | default('informational') }}
 logging on
 !
-{#- ===================== SNMP ===================== -#}
+{#- ===================== SNMP ===================== #}
 snmp-server contact {{ snmp_contact }}
 snmp-server location {{ snmp_location }}
 {%- if ctx.snmp_communities is defined %}
@@ -96,10 +94,10 @@ snmp-server user {{ u.name }} {{ u.group }} v3{% if u.auth is defined %} auth {{
 {%- endfor %}
 snmp-server enable traps
 !
-{#- ===================== spanning-tree ===================== -#}
+{#- ===================== spanning-tree ===================== #}
 spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
 !
-{#- ===================== VLANs ===================== -#}
+{#- ===================== VLANs ===================== #}
 {%- for v in ctx.vlans | default([]) %}
 vlan {{ v.id }}
 {%- if v.name is defined %}
@@ -107,7 +105,7 @@ vlan {{ v.id }}
 {%- endif %}
 !
 {%- endfor %}
-{#- ===================== management APIs ===================== -#}
+{#- ===================== management APIs ===================== #}
 management api http-commands
 {%- if is_veos %}
    protocol unix-socket
@@ -124,7 +122,7 @@ management api netconf
    transport ssh default
 {%- endif %}
 !
-{#- ===================== interfaces ===================== -#}
+{#- ===================== interfaces ===================== #}
 {%- for iface in ctx.routed_interfaces | default([]) %}
 interface {{ iface.name }}
 {%- if iface.description | default('') %}
@@ -161,7 +159,7 @@ event-handler FIX-SNMP
    action bash sudo ip addr add {{ mgmt_ip }} dev vmnicet1
 !
 {%- endif %}
-{#- ===================== routing ===================== -#}
+{#- ===================== routing ===================== #}
 ip routing
 !
 {%- if ctx.default_gateway is defined %}
@@ -171,7 +169,7 @@ ip route 0.0.0.0/0 {{ ctx.default_gateway }}
 ip route {{ route.prefix }} {{ route.next_hop }}
 {%- endfor %}
 !
-{#- ===================== NTP ===================== -#}
+{#- ===================== NTP ===================== #}
 {%- if ctx.ntp_servers is defined %}
 {%- for n in ctx.ntp_servers %}
 ntp server {{ n }}
@@ -180,7 +178,7 @@ ntp server {{ n }}
 ntp server {{ ntp_server }}
 {%- endif %}
 !
-{#- ===================== OSPF ===================== -#}
+{#- ===================== OSPF ===================== #}
 {%- if ctx.ospf is defined %}
 router ospf 1
    router-id {{ ctx.ospf.router_id }}
@@ -198,7 +196,7 @@ router ospf 1
 {%- endif %}
 !
 {%- endif %}
-{#- ===================== BGP ===================== -#}
+{#- ===================== BGP ===================== #}
 {%- if ctx.bgp is defined %}
 router bgp {{ ctx.bgp.asn }}
 {%- if ctx.bgp.router_id is defined %}
@@ -224,97 +222,11 @@ router bgp {{ ctx.bgp.asn }}
 {%- endfor %}
 !
 {%- endif %}
-{#- ===================== management ssh ===================== -#}
+{#- ===================== management ssh ===================== #}
 management ssh
 {%- if is_veos %}
    idle-timeout {{ ctx.ssh_idle_timeout | default(0) }}
 {%- endif %}
    authentication mode password
 !
-endsnmp-server contact {{ snmp_contact }}
-snmp-server location {{ snmp_location }}
-!
-logging host {{ syslog_server }} {{ syslog_port }}
-logging trap informational
-logging on
-!
-management api http-commands
-   no shutdown
-management ssh
-   idle-timeout 0
-   authentication mode password
-!
-event-handler FIX-SNMP
-   trigger on-boot
-   action bash sudo ip addr add {{ mgmt_ip }} dev vmnicet1
-{% else %}
-{# ── cEOS (EOS 4.35.x) ──────────────────────────────────── #}
-no aaa root
-!
-username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
-!
-management api http-commands
-   no shutdown
-!
-no service interface inactive port-id allocation disabled
-!
-service routing protocols model {{ routing_model }}
-!
-logging host {{ syslog_server }} {{ syslog_port }}
-!
-hostname {{ obj.name }}
-ip name-server vrf default {{ dns_server }}
-!
-snmp-server contact {{ snmp_contact }}
-snmp-server location {{ snmp_location }}
-snmp-server community {{ snmp_community }} ro
-snmp-server host {{ snmp_host }} version 2c {{ snmp_community }}
-snmp-server enable traps
-!
-spanning-tree mode mstp
-!
-system l1
-   unsupported speed action error
-   unsupported error-correction action error
-!
-{% for iface in ctx.routed_interfaces | default([]) %}
-interface {{ iface.name }}
-{% if iface.description | default('') %}
-   description {{ iface.description }}
-{% endif %}
-   no switchport
-   ip address {{ iface.ip_address }}
-!
-{% endfor %}
-interface {{ mgmt_iface }}
-   ip address {{ mgmt_ip }}
-!
-ip routing
-!
-{% for route in ctx.static_routes | default([]) %}
-ip route {{ route.prefix }} {{ route.next_hop }}
-{% endfor %}
-{% if ctx.static_routes is defined and ctx.static_routes | length > 0 %}
-!
-{% endif %}
-ntp server {{ ntp_server }}
-!
-{% if ctx.ospf is defined %}
-router ospf 1
-   router-id {{ ctx.ospf.router_id }}
-{% for net in ctx.ospf.networks | default([]) %}
-   network {{ net.prefix }} area {{ net.area }}
-{% endfor %}
-{% if ctx.ospf.max_lsa | default(true) %}
-   max-lsa 12000
-{% endif %}
-{% if ctx.ospf.default_information_originate | default(false) %}
-   default-information originate
-{% endif %}
-!
-{% endif %}
-management ssh
-   authentication mode password
-!
 end
-{% endif %}
