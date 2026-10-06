@@ -1,1 +1,254 @@
-
+{# arista_eos.golden.j2 — golden best-practice library (source). #}
+{# Only the {# feature | detect #} markers are functional; they are #}
+{# Jinja comments (never rendered) and are stripped from the intended #}
+{# template at generation time. #}
+{% set ctx = obj.get_config_context() %}
+{% set vrf = ctx.mgmt_vrf | default('MGMT') %}
+!
+{# feature: system | detect: ^service routing protocols model #}
+no aaa root
+service routing protocols model {{ ctx.routing_model | default('multi-agent') }}
+{# endfeature #}
+!
+{# feature: password-policy | detect: ^management security|^aaa authentication policy #}
+management security
+   password minimum length 8
+   password encryption-key common
+aaa authentication policy local allow-nopassword-remote-login
+{# endfeature #}
+!
+{# feature: hostname | detect: ^hostname #}
+hostname {{ obj.name }}
+ip domain-name {{ ctx.domain_name | default('enterprise.local') }}
+{# endfeature #}
+!
+{# feature: users | detect: ^username #}
+username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
+{% for u in ctx.users | default([]) %}
+username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role | default('network-operator') }} secret sha512 {{ u.secret_hash }}
+{% endfor %}
+{# endfeature #}
+!
+{# feature: aaa | detect: ^aaa |^tacacs-server|^radius-server #}
+aaa authentication login default group tacacs+ local
+aaa authorization exec default group tacacs+ local
+aaa authorization commands all default group tacacs+ local
+aaa accounting exec default start-stop group tacacs+
+aaa accounting commands all default start-stop group tacacs+
+{% for s in ctx.tacacs_servers | default([]) %}
+tacacs-server host {{ s.host }} vrf {{ s.vrf | default(vrf) }} key 7 {{ s.key }}
+{% endfor %}
+{# endfeature #}
+!
+{# feature: dns | detect: ^ip name-server #}
+{% for d in ctx.dns_servers | default([ctx.dns_server | default('172.20.21.100')]) %}
+ip name-server vrf {{ vrf }} {{ d }}
+{% endfor %}
+{# endfeature #}
+!
+{# feature: clock | detect: ^clock timezone #}
+clock timezone {{ ctx.timezone | default('UTC') }}
+{# endfeature #}
+!
+{# feature: ntp | detect: ^ntp #}
+ntp authenticate
+ntp trusted-key 1
+{% for s in ctx.ntp_servers | default([ctx.ntp_server | default('172.20.21.100')]) %}
+ntp server vrf {{ vrf }} {{ s }} iburst
+{% endfor %}
+{% if ctx.ntp_source is defined %}ntp source {{ ctx.ntp_source }}{% endif %}
+{# endfeature #}
+!
+{# feature: snmp | detect: ^snmp-server #}
+snmp-server view RO-VIEW iso included
+snmp-server group GOLDEN v3 priv read RO-VIEW
+{% for u in ctx.snmp_v3_users | default([]) %}
+snmp-server user {{ u.name }} GOLDEN v3 auth sha {{ u.auth }} priv aes {{ u.priv }}
+{% endfor %}
+{% if ctx.snmp_host is defined %}snmp-server host {{ ctx.snmp_host }} vrf {{ vrf }} version 3 priv {{ ctx.snmp_user | default('monitor') }}{% endif %}
+snmp-server vrf {{ vrf }} local-interface {{ ctx.snmp_source | default('Management1') }}
+snmp-server contact {{ ctx.snmp_contact | default('noc@enterprise.local') }}
+snmp-server location {{ ctx.snmp_location | default('set-location') }}
+snmp-server enable traps
+{% if ctx.snmp_acl is defined %}snmp-server ipv4 access-list {{ ctx.snmp_acl }}{% endif %}
+{# endfeature #}
+!
+{# feature: logging | detect: ^logging #}
+{% for h in ctx.syslog_hosts | default([ctx.syslog_server | default('172.20.21.1')]) %}
+logging vrf {{ vrf }} host {{ h }}{% if ctx.syslog_port is defined %} {{ ctx.syslog_port }}{% endif %}
+{% endfor %}
+logging trap informational
+logging buffered 32768 informational
+logging format timestamp high-resolution
+{% if ctx.logging_source is defined %}logging source-interface {{ ctx.logging_source }}{% endif %}
+logging on
+{# endfeature #}
+!
+{# feature: banner | detect: ^banner #}
+banner login
+{{ ctx.login_banner | default('WARNING: Authorized access only. All activity is logged and monitored.') }}
+EOF
+{# endfeature #}
+!
+{# feature: management-vrf | detect: ^(ip|ipv6) route vrf #}
+vrf instance {{ vrf }}
+{% if ctx.mgmt_default_gateway is defined %}ip route vrf {{ vrf }} 0.0.0.0/0 {{ ctx.mgmt_default_gateway }}{% endif %}
+{# endfeature #}
+!
+{# feature: management-ssh | detect: ^management ssh #}
+management ssh
+   idle-timeout {{ ctx.ssh_idle_timeout | default(15) }}
+   authentication mode password
+{% if ctx.ssh_acl is defined %}   ip access-group {{ ctx.ssh_acl }} in{% endif %}
+   vrf {{ vrf }}
+      no shutdown
+{# endfeature #}
+!
+{# feature: management-api | detect: ^management api #}
+management api http-commands
+   no shutdown
+   protocol https
+   vrf {{ vrf }}
+      no shutdown
+{# endfeature #}
+!
+{# feature: lldp | detect: ^lldp #}
+lldp run
+{# endfeature #}
+!
+{# feature: spanning-tree | detect: ^spanning-tree #}
+spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
+spanning-tree edge-port default
+spanning-tree bpduguard default enable
+{# endfeature #}
+!
+{# feature: vlans | detect: ^vlan #}
+{% for v in ctx.vlans | default([]) %}
+vlan {{ v.id }}
+   name {{ v.name | default('VLAN' ~ v.id) }}
+!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: interfaces | detect: ^interface Ethernet|^interface Port-Channel #}
+{% for i in ctx.routed_interfaces | default([]) %}
+interface {{ i.name }}
+   description {{ i.description | default('ROUTED') }}
+   no switchport
+   ip address {{ i.ip_address }}
+!
+{% endfor %}
+{% for i in ctx.switched_interfaces | default([]) %}
+interface {{ i.name }}
+   description {{ i.description | default('ACCESS') }}
+{% if i.mode | default('access') == 'access' %}   switchport access vlan {{ i.vlan | default(1) }}
+   spanning-tree portfast
+   spanning-tree bpduguard enable
+{% else %}   switchport mode trunk
+   switchport trunk native vlan {{ i.native_vlan | default(999) }}
+{% if i.trunk_vlans is defined %}   switchport trunk allowed vlan {{ i.trunk_vlans }}{% endif %}
+{% endif %}
+!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: unused-interfaces | detect: ^interface Ethernet #}
+{% for i in ctx.unused_interfaces | default([]) %}
+interface {{ i }}
+   description UNUSED
+   switchport access vlan {{ ctx.unused_vlan | default(999) }}
+   shutdown
+!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: ip-routing | detect: ^ip routing #}
+ip routing
+{# endfeature #}
+!
+{# feature: static-routes | detect: ^ip route #}
+{% if ctx.default_gateway is defined %}ip route 0.0.0.0/0 {{ ctx.default_gateway }}{% endif %}
+{% for r in ctx.static_routes | default([]) %}
+ip route {{ r.prefix }} {{ r.next_hop }}
+{% endfor %}
+{# endfeature #}
+!
+{# feature: ospf | detect: ^router ospf #}
+{% if ctx.ospf is defined %}
+router ospf {{ ctx.ospf.process | default(1) }}
+   router-id {{ ctx.ospf.router_id }}
+   passive-interface default
+{% for n in ctx.ospf.networks | default([]) %}   network {{ n.prefix }} area {{ n.area }}
+{% endfor %}   max-lsa 12000
+!
+{% endif %}
+{# endfeature #}
+!
+{# feature: bgp | detect: ^router bgp #}
+{% if ctx.bgp is defined %}
+router bgp {{ ctx.bgp.asn }}
+   router-id {{ ctx.bgp.router_id }}
+{% for nb in ctx.bgp.neighbors | default([]) %}   neighbor {{ nb.ip }} remote-as {{ nb.remote_as }}
+{% if nb.description is defined %}   neighbor {{ nb.ip }} description {{ nb.description }}{% endif %}
+{% if nb.password is defined %}   neighbor {{ nb.ip }} password 7 {{ nb.password }}{% endif %}
+   neighbor {{ nb.ip }} maximum-routes {{ nb.max_routes | default(12000) }}
+{% endfor %}
+{% for net in ctx.bgp.networks | default([]) %}   network {{ net }}
+{% endfor %}
+!
+{% endif %}
+{# endfeature #}
+!
+{# feature: prefix-lists | detect: ^ip prefix-list #}
+{% for pl in ctx.prefix_lists | default([]) %}
+{% for e in pl.entries %}ip prefix-list {{ pl.name }} seq {{ e.seq }} {{ e.action }} {{ e.prefix }}{% if e.le is defined %} le {{ e.le }}{% endif %}
+{% endfor %}{% endfor %}
+{# endfeature #}
+!
+{# feature: route-maps | detect: ^route-map #}
+{% for rm in ctx.route_maps | default([]) %}
+{% for e in rm.entries %}route-map {{ rm.name }} {{ e.action }} {{ e.seq }}
+{% for m in e.match | default([]) %}   match {{ m }}
+{% endfor %}{% for s in e.set | default([]) %}   set {{ s }}
+{% endfor %}!
+{% endfor %}{% endfor %}
+{# endfeature #}
+!
+{# feature: acls | detect: ^ip access-list #}
+{% for acl in ctx.acls | default([]) %}
+ip access-list {{ acl.name }}
+{% for e in acl.entries %}   {{ e.seq }} {{ e.action }} {{ e.rule }}
+{% endfor %}!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: control-plane | detect: ^policy-map type copp|^control-plane #}
+{% if ctx.copp_policy is defined %}
+control-plane
+   service-policy input {{ ctx.copp_policy }}
+{% endif %}
+{# endfeature #}
+!
+{# feature: qos | detect: ^class-map|^policy-map type qos #}
+{% for cm in ctx.qos_class_maps | default([]) %}
+class-map type qos match-any {{ cm.name }}
+{% for m in cm.match %}   match {{ m }}
+{% endfor %}!
+{% endfor %}
+{% for pm in ctx.qos_policy_maps | default([]) %}
+policy-map type qos {{ pm.name }}
+{% for c in pm.classes %}   class {{ c.name }}
+{% for a in c.actions %}      {{ a }}
+{% endfor %}{% endfor %}!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: sflow | detect: ^sflow #}
+{% if ctx.sflow_collector is defined %}
+sflow vrf {{ vrf }} destination {{ ctx.sflow_collector }}
+sflow vrf {{ vrf }} source-interface {{ ctx.sflow_source | default('Management1') }}
+sflow run
+{% endif %}
+{# endfeature #}
+!
+end
