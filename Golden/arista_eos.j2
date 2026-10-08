@@ -2,9 +2,26 @@
 {# Only the {# feature | detect #} markers are functional; they are #}
 {# Jinja comments (never rendered) and are stripped from the intended #}
 {# template at generation time. #}
-{# Compliance metadata lives on the same markers: frameworks / require / forbid. #}
 {% set ctx = obj.get_config_context() %}
 {% set vrf = ctx.mgmt_vrf | default('MGMT') %}
+!
+{# ─────────────────── COMPLIANCE POLICY ─────────────────── #}
+{# Each marker is a require/forbid check mapped to frameworks. They are pure #}
+{# Jinja comments (never rendered) and drive the per-framework compliance report. #}
+{# The report is compliant for a framework only when every check tagged with it passes. #}
+{# compliance: ssh-enabled       | frameworks: CIS,STIG,PCI,HIPAA,NIST | require: ^management ssh #}
+{# compliance: telnet-disabled   | frameworks: CIS,STIG,PCI,HIPAA,GDPR | forbid: ^management telnet #}
+{# compliance: snmpv3-only       | frameworks: CIS,STIG,PCI,HIPAA,NIST | require: ^snmp-server group \S+ v3 priv #}
+{# compliance: snmp-no-community | frameworks: CIS,STIG,PCI,HIPAA      | forbid: ^snmp-server community #}
+{# compliance: aaa-authentication| frameworks: CIS,STIG,NIST,SOX       | require: ^aaa authentication login #}
+{# compliance: command-accounting| frameworks: STIG,SOX,NIST           | require: ^aaa accounting commands #}
+{# compliance: central-syslog    | frameworks: PCI,HIPAA,SOX,NIST,STIG | require: ^logging (vrf \S+ )?host #}
+{# compliance: ntp-configured    | frameworks: PCI,NIST,STIG           | require: ^ntp server #}
+{# compliance: login-banner      | frameworks: CIS,STIG,NIST           | require: ^banner (login|motd) #}
+{# compliance: session-timeout   | frameworks: CIS,STIG,NIST           | require: idle-timeout \d+ #}
+{# compliance: mgmt-acl          | frameworks: CIS,STIG,NIST           | require: ip access-group \S+ in|access-class #}
+{# compliance: no-nopassword     | frameworks: CIS,STIG,PCI            | forbid: allow-nopassword #}
+{# ───────────────── END COMPLIANCE POLICY ───────────────── #}
 !
 {# feature: system | detect: ^service routing protocols model #}
 no aaa root
@@ -15,7 +32,6 @@ service routing protocols model {{ ctx.routing_model | default('multi-agent') }}
 management security
    password minimum length 8
    password encryption-key common
-aaa authentication policy local allow-nopassword-remote-login
 {# endfeature #}
 !
 {# feature: hostname | detect: ^hostname #}
@@ -30,7 +46,7 @@ username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role
 {% endfor %}
 {# endfeature #}
 !
-{# feature: aaa | detect: ^aaa |^tacacs-server|^radius-server | frameworks: CIS,STIG,NIST,SOX | require: ^aaa authentication login #}
+{# feature: aaa | detect: ^aaa |^tacacs-server|^radius-server #}
 aaa authentication login default group tacacs+ local
 aaa authorization exec default group tacacs+ local
 aaa authorization commands all default group tacacs+ local
@@ -51,7 +67,7 @@ ip name-server vrf {{ vrf }} {{ d }}
 clock timezone {{ ctx.timezone | default('UTC') }}
 {# endfeature #}
 !
-{# feature: ntp | detect: ^ntp | frameworks: PCI,NIST,STIG | require: ^ntp server #}
+{# feature: ntp | detect: ^ntp #}
 ntp authenticate
 ntp trusted-key 1
 {% for s in ctx.ntp_servers | default([ctx.ntp_server | default('172.20.21.100')]) %}
@@ -60,7 +76,7 @@ ntp server vrf {{ vrf }} {{ s }} iburst
 {% if ctx.ntp_source is defined %}ntp source {{ ctx.ntp_source }}{% endif %}
 {# endfeature #}
 !
-{# feature: snmp | detect: ^snmp-server | frameworks: CIS,STIG,PCI,HIPAA,NIST | require: ^snmp-server group \S+ v3 priv | forbid: ^snmp-server community #}
+{# feature: snmp | detect: ^snmp-server #}
 snmp-server view RO-VIEW iso included
 snmp-server group GOLDEN v3 priv read RO-VIEW
 {% for u in ctx.snmp_v3_users | default([]) %}
@@ -74,7 +90,7 @@ snmp-server enable traps
 {% if ctx.snmp_acl is defined %}snmp-server ipv4 access-list {{ ctx.snmp_acl }}{% endif %}
 {# endfeature #}
 !
-{# feature: logging | detect: ^logging | frameworks: PCI,HIPAA,SOX,NIST,STIG | require: ^logging (vrf \S+ )?host #}
+{# feature: logging | detect: ^logging #}
 {% for h in ctx.syslog_hosts | default([ctx.syslog_server | default('172.20.21.1')]) %}
 logging vrf {{ vrf }} host {{ h }}{% if ctx.syslog_port is defined %} {{ ctx.syslog_port }}{% endif %}
 {% endfor %}
@@ -95,8 +111,6 @@ EOF
 vrf instance {{ vrf }}
 {% if ctx.mgmt_default_gateway is defined %}ip route vrf {{ vrf }} 0.0.0.0/0 {{ ctx.mgmt_default_gateway }}{% endif %}
 {# endfeature #}
-!
-{# compliance: telnet-disabled | frameworks: CIS,STIG,PCI,HIPAA,GDPR | forbid: ^management telnet #}
 !
 {# feature: management-ssh | detect: ^management ssh #}
 management ssh
