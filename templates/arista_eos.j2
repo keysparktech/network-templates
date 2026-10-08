@@ -6,6 +6,12 @@ username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret
 username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role | default('network-operator') }} secret sha512 {{ u.secret_hash }}
 {% endfor %}
 !
+management api http-commands
+   no shutdown
+   protocol https
+   vrf {{ vrf }}
+      no shutdown
+!
 no aaa root
 service routing protocols model {{ ctx.routing_model | default('multi-agent') }}
 !
@@ -40,12 +46,6 @@ snmp-server enable traps
 spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
 spanning-tree edge-port default
 spanning-tree bpduguard default enable
-!
-management api http-commands
-   no shutdown
-   protocol https
-   vrf {{ vrf }}
-      no shutdown
 !
 aaa authentication login default group tacacs+ local
 aaa authorization exec default group tacacs+ local
@@ -85,11 +85,6 @@ interface {{ i }}
 {% endfor %}
 !
 ip routing
-!
-{% if ctx.default_gateway is defined %}ip route 0.0.0.0/0 {{ ctx.default_gateway }}{% endif %}
-{% for r in ctx.static_routes | default([]) %}
-ip route {{ r.prefix }} {{ r.next_hop }}
-{% endfor %}
 !
 ntp authenticate
 ntp trusted-key 1
