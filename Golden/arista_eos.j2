@@ -2,6 +2,7 @@
 {# Only the {# feature | detect #} markers are functional; they are #}
 {# Jinja comments (never rendered) and are stripped from the intended #}
 {# template at generation time. #}
+{# Compliance metadata lives on the same markers: frameworks / require / forbid. #}
 {% set ctx = obj.get_config_context() %}
 {% set vrf = ctx.mgmt_vrf | default('MGMT') %}
 !
@@ -29,7 +30,7 @@ username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role
 {% endfor %}
 {# endfeature #}
 !
-{# feature: aaa | detect: ^aaa |^tacacs-server|^radius-server #}
+{# feature: aaa | detect: ^aaa |^tacacs-server|^radius-server | frameworks: CIS,STIG,NIST,SOX | require: ^aaa authentication login #}
 aaa authentication login default group tacacs+ local
 aaa authorization exec default group tacacs+ local
 aaa authorization commands all default group tacacs+ local
@@ -50,7 +51,7 @@ ip name-server vrf {{ vrf }} {{ d }}
 clock timezone {{ ctx.timezone | default('UTC') }}
 {# endfeature #}
 !
-{# feature: ntp | detect: ^ntp #}
+{# feature: ntp | detect: ^ntp | frameworks: PCI,NIST,STIG | require: ^ntp server #}
 ntp authenticate
 ntp trusted-key 1
 {% for s in ctx.ntp_servers | default([ctx.ntp_server | default('172.20.21.100')]) %}
@@ -59,7 +60,7 @@ ntp server vrf {{ vrf }} {{ s }} iburst
 {% if ctx.ntp_source is defined %}ntp source {{ ctx.ntp_source }}{% endif %}
 {# endfeature #}
 !
-{# feature: snmp | detect: ^snmp-server #}
+{# feature: snmp | detect: ^snmp-server | frameworks: CIS,STIG,PCI,HIPAA,NIST | require: ^snmp-server group \S+ v3 priv | forbid: ^snmp-server community #}
 snmp-server view RO-VIEW iso included
 snmp-server group GOLDEN v3 priv read RO-VIEW
 {% for u in ctx.snmp_v3_users | default([]) %}
@@ -73,7 +74,7 @@ snmp-server enable traps
 {% if ctx.snmp_acl is defined %}snmp-server ipv4 access-list {{ ctx.snmp_acl }}{% endif %}
 {# endfeature #}
 !
-{# feature: logging | detect: ^logging #}
+{# feature: logging | detect: ^logging | frameworks: PCI,HIPAA,SOX,NIST,STIG | require: ^logging (vrf \S+ )?host #}
 {% for h in ctx.syslog_hosts | default([ctx.syslog_server | default('172.20.21.1')]) %}
 logging vrf {{ vrf }} host {{ h }}{% if ctx.syslog_port is defined %} {{ ctx.syslog_port }}{% endif %}
 {% endfor %}
@@ -94,6 +95,8 @@ EOF
 vrf instance {{ vrf }}
 {% if ctx.mgmt_default_gateway is defined %}ip route vrf {{ vrf }} 0.0.0.0/0 {{ ctx.mgmt_default_gateway }}{% endif %}
 {# endfeature #}
+!
+{# compliance: telnet-disabled | frameworks: CIS,STIG,PCI,HIPAA,GDPR | forbid: ^management telnet #}
 !
 {# feature: management-ssh | detect: ^management ssh #}
 management ssh
@@ -198,57 +201,3 @@ router bgp {{ ctx.bgp.asn }}
 !
 {% endif %}
 {# endfeature #}
-!
-{# feature: prefix-lists | detect: ^ip prefix-list #}
-{% for pl in ctx.prefix_lists | default([]) %}
-{% for e in pl.entries %}ip prefix-list {{ pl.name }} seq {{ e.seq }} {{ e.action }} {{ e.prefix }}{% if e.le is defined %} le {{ e.le }}{% endif %}
-{% endfor %}{% endfor %}
-{# endfeature #}
-!
-{# feature: route-maps | detect: ^route-map #}
-{% for rm in ctx.route_maps | default([]) %}
-{% for e in rm.entries %}route-map {{ rm.name }} {{ e.action }} {{ e.seq }}
-{% for m in e.match | default([]) %}   match {{ m }}
-{% endfor %}{% for s in e.set | default([]) %}   set {{ s }}
-{% endfor %}!
-{% endfor %}{% endfor %}
-{# endfeature #}
-!
-{# feature: acls | detect: ^ip access-list #}
-{% for acl in ctx.acls | default([]) %}
-ip access-list {{ acl.name }}
-{% for e in acl.entries %}   {{ e.seq }} {{ e.action }} {{ e.rule }}
-{% endfor %}!
-{% endfor %}
-{# endfeature #}
-!
-{# feature: control-plane | detect: ^policy-map type copp|^control-plane #}
-{% if ctx.copp_policy is defined %}
-control-plane
-   service-policy input {{ ctx.copp_policy }}
-{% endif %}
-{# endfeature #}
-!
-{# feature: qos | detect: ^class-map|^policy-map type qos #}
-{% for cm in ctx.qos_class_maps | default([]) %}
-class-map type qos match-any {{ cm.name }}
-{% for m in cm.match %}   match {{ m }}
-{% endfor %}!
-{% endfor %}
-{% for pm in ctx.qos_policy_maps | default([]) %}
-policy-map type qos {{ pm.name }}
-{% for c in pm.classes %}   class {{ c.name }}
-{% for a in c.actions %}      {{ a }}
-{% endfor %}{% endfor %}!
-{% endfor %}
-{# endfeature #}
-!
-{# feature: sflow | detect: ^sflow #}
-{% if ctx.sflow_collector is defined %}
-sflow vrf {{ vrf }} destination {{ ctx.sflow_collector }}
-sflow vrf {{ vrf }} source-interface {{ ctx.sflow_source | default('Management1') }}
-sflow run
-{% endif %}
-{# endfeature #}
-!
-end
