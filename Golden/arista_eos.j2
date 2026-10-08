@@ -201,3 +201,57 @@ router bgp {{ ctx.bgp.asn }}
 !
 {% endif %}
 {# endfeature #}
+!
+{# feature: prefix-lists | detect: ^ip prefix-list #}
+{% for pl in ctx.prefix_lists | default([]) %}
+{% for e in pl.entries %}ip prefix-list {{ pl.name }} seq {{ e.seq }} {{ e.action }} {{ e.prefix }}{% if e.le is defined %} le {{ e.le }}{% endif %}
+{% endfor %}{% endfor %}
+{# endfeature #}
+!
+{# feature: route-maps | detect: ^route-map #}
+{% for rm in ctx.route_maps | default([]) %}
+{% for e in rm.entries %}route-map {{ rm.name }} {{ e.action }} {{ e.seq }}
+{% for m in e.match | default([]) %}   match {{ m }}
+{% endfor %}{% for s in e.set | default([]) %}   set {{ s }}
+{% endfor %}!
+{% endfor %}{% endfor %}
+{# endfeature #}
+!
+{# feature: acls | detect: ^ip access-list #}
+{% for acl in ctx.acls | default([]) %}
+ip access-list {{ acl.name }}
+{% for e in acl.entries %}   {{ e.seq }} {{ e.action }} {{ e.rule }}
+{% endfor %}!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: control-plane | detect: ^policy-map type copp|^control-plane #}
+{% if ctx.copp_policy is defined %}
+control-plane
+   service-policy input {{ ctx.copp_policy }}
+{% endif %}
+{# endfeature #}
+!
+{# feature: qos | detect: ^class-map|^policy-map type qos #}
+{% for cm in ctx.qos_class_maps | default([]) %}
+class-map type qos match-any {{ cm.name }}
+{% for m in cm.match %}   match {{ m }}
+{% endfor %}!
+{% endfor %}
+{% for pm in ctx.qos_policy_maps | default([]) %}
+policy-map type qos {{ pm.name }}
+{% for c in pm.classes %}   class {{ c.name }}
+{% for a in c.actions %}      {{ a }}
+{% endfor %}{% endfor %}!
+{% endfor %}
+{# endfeature #}
+!
+{# feature: sflow | detect: ^sflow #}
+{% if ctx.sflow_collector is defined %}
+sflow vrf {{ vrf }} destination {{ ctx.sflow_collector }}
+sflow vrf {{ vrf }} source-interface {{ ctx.sflow_source | default('Management1') }}
+sflow run
+{% endif %}
+{# endfeature #}
+!
+end
