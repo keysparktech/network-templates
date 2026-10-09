@@ -1,7 +1,3 @@
-{# arista_eos.golden.j2 — golden best-practice library (source). #}
-{# Only the {# feature | detect #} markers are functional; they are #}
-{# Jinja comments (never rendered) and are stripped from the intended #}
-{# template at generation time. #}
 {% set ctx = obj.get_config_context() %}
 {% set vrf = ctx.mgmt_vrf | default('MGMT') %}
 !
