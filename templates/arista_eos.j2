@@ -1,5 +1,6 @@
 {% set ctx = obj.get_config_context() %}
-{% set vrf = ctx.mgmt_vrf | default('MGMT') %}
+{% set mgmt_vrf = ctx.mgmt_vrf | default('') %}
+{% set vrfp = ('vrf ' ~ mgmt_vrf ~ ' ') if mgmt_vrf else '' %}
 !
 username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret_hash | default('$6$placeholder$changeme') }}
 {% for u in ctx.users | default([]) %}
@@ -9,51 +10,33 @@ username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role
 management api http-commands
    no shutdown
    protocol https
-   vrf {{ vrf }}
-      no shutdown
 !
 no aaa root
 service routing protocols model {{ ctx.routing_model | default('multi-agent') }}
 !
 {% for h in ctx.syslog_hosts | default([ctx.syslog_server | default('172.20.21.1')]) %}
-logging vrf {{ vrf }} host {{ h }}{% if ctx.syslog_port is defined %} {{ ctx.syslog_port }}{% endif %}
+logging {{ vrfp }}host {{ h }}{{ (' ' ~ ctx.syslog_port) if ctx.syslog_port is defined else '' }}
 {% endfor %}
-logging trap informational
-logging buffered 32768 informational
-logging format timestamp high-resolution
-{% if ctx.logging_source is defined %}logging source-interface {{ ctx.logging_source }}{% endif %}
-logging on
 !
 hostname {{ obj.name }}
 ip domain-name {{ ctx.domain_name | default('enterprise.local') }}
 !
 {% for d in ctx.dns_servers | default([ctx.dns_server | default('172.20.21.100')]) %}
-ip name-server vrf {{ vrf }} {{ d }}
+ip name-server {{ vrfp }}{{ d }}
 {% endfor %}
 !
-snmp-server view RO-VIEW iso included
-snmp-server group GOLDEN v3 priv read RO-VIEW
-{% for u in ctx.snmp_v3_users | default([]) %}
-snmp-server user {{ u.name }} GOLDEN v3 auth sha {{ u.auth }} priv aes {{ u.priv }}
-{% endfor %}
-{% if ctx.snmp_host is defined %}snmp-server host {{ ctx.snmp_host }} vrf {{ vrf }} version 3 priv {{ ctx.snmp_user | default('monitor') }}{% endif %}
-snmp-server vrf {{ vrf }} local-interface {{ ctx.snmp_source | default('Management1') }}
 snmp-server contact {{ ctx.snmp_contact | default('noc@enterprise.local') }}
 snmp-server location {{ ctx.snmp_location | default('set-location') }}
 snmp-server enable traps
-{% if ctx.snmp_acl is defined %}snmp-server ipv4 access-list {{ ctx.snmp_acl }}{% endif %}
+{% if ctx.snmp_host is defined %}
+snmp-server host {{ ctx.snmp_host }} {{ vrfp }}version 3 priv {{ ctx.snmp_user | default('monitor') }}
+{% endif %}
 !
 spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
-spanning-tree edge-port default
-spanning-tree bpduguard default enable
 !
 aaa authentication login default group tacacs+ local
-aaa authorization exec default group tacacs+ local
-aaa authorization commands all default group tacacs+ local
-aaa accounting exec default start-stop group tacacs+
-aaa accounting commands all default start-stop group tacacs+
 {% for s in ctx.tacacs_servers | default([]) %}
-tacacs-server host {{ s.host }} vrf {{ s.vrf | default(vrf) }} key 7 {{ s.key }}
+tacacs-server host {{ s.host }} {{ vrfp }}key 7 {{ s.key }}
 {% endfor %}
 !
 {% for i in ctx.routed_interfaces | default([]) %}
@@ -66,12 +49,13 @@ interface {{ i.name }}
 {% for i in ctx.switched_interfaces | default([]) %}
 interface {{ i.name }}
    description {{ i.description | default('ACCESS') }}
-{% if i.mode | default('access') == 'access' %}   switchport access vlan {{ i.vlan | default(1) }}
-   spanning-tree portfast
-   spanning-tree bpduguard enable
-{% else %}   switchport mode trunk
-   switchport trunk native vlan {{ i.native_vlan | default(999) }}
-{% if i.trunk_vlans is defined %}   switchport trunk allowed vlan {{ i.trunk_vlans }}{% endif %}
+{% if i.mode | default('access') == 'access' %}
+   switchport access vlan {{ i.vlan | default(1) }}
+{% else %}
+   switchport mode trunk
+{% if i.trunk_vlans is defined %}
+   switchport trunk allowed vlan {{ i.trunk_vlans }}
+{% endif %}
 {% endif %}
 !
 {% endfor %}
@@ -79,34 +63,26 @@ interface {{ i.name }}
 {% for i in ctx.unused_interfaces | default([]) %}
 interface {{ i }}
    description UNUSED
-   switchport access vlan {{ ctx.unused_vlan | default(999) }}
    shutdown
 !
 {% endfor %}
 !
 ip routing
 !
-ntp authenticate
-ntp trusted-key 1
 {% for s in ctx.ntp_servers | default([ctx.ntp_server | default('172.20.21.100')]) %}
-ntp server vrf {{ vrf }} {{ s }} iburst
+ntp server {{ vrfp }}{{ s }}
 {% endfor %}
-{% if ctx.ntp_source is defined %}ntp source {{ ctx.ntp_source }}{% endif %}
 !
 {% if ctx.ospf is defined %}
 router ospf {{ ctx.ospf.process | default(1) }}
    router-id {{ ctx.ospf.router_id }}
-   passive-interface default
-{% for n in ctx.ospf.networks | default([]) %}   network {{ n.prefix }} area {{ n.area }}
-{% endfor %}   max-lsa 12000
-!
+{% for n in ctx.ospf.networks | default([]) %}
+   network {{ n.prefix }} area {{ n.area }}
+{% endfor %}
 {% endif %}
 !
 management ssh
    idle-timeout {{ ctx.ssh_idle_timeout | default(15) }}
-   authentication mode password
-{% if ctx.ssh_acl is defined %}   ip access-group {{ ctx.ssh_acl }} in{% endif %}
-   vrf {{ vrf }}
-      no shutdown
+   no shutdown
 !
 end
