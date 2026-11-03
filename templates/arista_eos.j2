@@ -7,6 +7,10 @@ username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret
 username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role | default('network-operator') }} secret sha512 {{ u.secret_hash }}
 {% endfor %}
 !
+management api http-commands
+   no shutdown
+   protocol https
+!
 no aaa root
 service routing protocols model {{ ctx.routing_model | default('multi-agent') }}
 !
@@ -29,14 +33,6 @@ snmp-server host {{ ctx.snmp_host }} {{ vrfp }}version 3 priv {{ ctx.snmp_user |
 {% endif %}
 !
 spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
-!
-banner login
-{{ ctx.login_banner | default('WARNING: Authorized access only. All activity is logged and monitored.') }}
-EOF
-!
-management api http-commands
-   no shutdown
-   protocol https
 !
 aaa authentication login default group tacacs+ local
 {% for s in ctx.tacacs_servers | default([]) %}
@@ -71,22 +67,7 @@ interface {{ i }}
 !
 {% endfor %}
 !
-{% for acl in ctx.acls | default([]) %}
-ip access-list {{ acl.name }}
-{% for e in acl.entries %}
-   {{ e.seq }} {{ e.action }} {{ e.rule }}
-{% endfor %}
-!
-{% endfor %}
-!
 ip routing
-!
-{% if ctx.default_gateway is defined %}
-ip route 0.0.0.0/0 {{ ctx.default_gateway }}
-{% endif %}
-{% for r in ctx.static_routes | default([]) %}
-ip route {{ r.prefix }} {{ r.next_hop }}
-{% endfor %}
 !
 {% for s in ctx.ntp_servers | default([ctx.ntp_server | default('172.20.21.100')]) %}
 ntp server {{ vrfp }}{{ s }}
