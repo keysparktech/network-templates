@@ -7,10 +7,6 @@ username admin privilege 15 role network-admin secret sha512 {{ ctx.admin_secret
 username {{ u.name }} privilege {{ u.privilege | default('15') }} role {{ u.role | default('network-operator') }} secret sha512 {{ u.secret_hash }}
 {% endfor %}
 !
-management api http-commands
-   no shutdown
-   protocol https
-!
 no aaa root
 service routing protocols model {{ ctx.routing_model | default('multi-agent') }}
 !
@@ -21,10 +17,6 @@ logging {{ vrfp }}host {{ h }}{{ (' ' ~ ctx.syslog_port) if ctx.syslog_port is d
 hostname {{ obj.name }}
 ip domain-name {{ ctx.domain_name | default('enterprise.local') }}
 !
-{% for d in ctx.dns_servers | default([ctx.dns_server | default('172.20.21.100')]) %}
-ip name-server {{ vrfp }}{{ d }}
-{% endfor %}
-!
 snmp-server contact {{ ctx.snmp_contact | default('noc@enterprise.local') }}
 snmp-server location {{ ctx.snmp_location | default('set-location') }}
 snmp-server enable traps
@@ -34,9 +26,10 @@ snmp-server host {{ ctx.snmp_host }} {{ vrfp }}version 3 priv {{ ctx.snmp_user |
 !
 spanning-tree mode {{ ctx.spanning_tree_mode | default('mstp') }}
 !
-aaa authentication login default group tacacs+ local
-{% for s in ctx.tacacs_servers | default([]) %}
-tacacs-server host {{ s.host }} {{ vrfp }}key 7 {{ s.key }}
+{% for v in ctx.vlans | default([]) %}
+vlan {{ v.id }}
+   name {{ v.name | default('VLAN' ~ v.id) }}
+!
 {% endfor %}
 !
 {% for i in ctx.routed_interfaces | default([]) %}
@@ -69,6 +62,13 @@ interface {{ i }}
 !
 ip routing
 !
+{% if ctx.default_gateway is defined %}
+ip route 0.0.0.0/0 {{ ctx.default_gateway }}
+{% endif %}
+{% for r in ctx.static_routes | default([]) %}
+ip route {{ r.prefix }} {{ r.next_hop }}
+{% endfor %}
+!
 {% for s in ctx.ntp_servers | default([ctx.ntp_server | default('172.20.21.100')]) %}
 ntp server {{ vrfp }}{{ s }}
 {% endfor %}
@@ -80,9 +80,5 @@ router ospf {{ ctx.ospf.process | default(1) }}
    network {{ n.prefix }} area {{ n.area }}
 {% endfor %}
 {% endif %}
-!
-management ssh
-   idle-timeout {{ ctx.ssh_idle_timeout | default(15) }}
-   no shutdown
 !
 end
