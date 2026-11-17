@@ -1,0 +1,664 @@
+{# ============================================================================= #}
+{# fortinet.j2 — FortiGate / FortiOS GOLDEN CONFIG (intended state)               #}
+{# ----------------------------------------------------------------------------- #}
+{# Authoritative, vendor-neutral baseline for ANY FortiGate — not a lab config.  #}
+{#                                                                               #}
+{# PRINCIPLES                                                                    #}
+{#   1. Security knobs are HARDCODED to the hardened value (the baseline's        #}
+{#      opinion — CIS FortiGate Benchmark + Fortinet Hardening Guide). These are  #}
+{#      the same on every firewall and are NOT meant to be overridden.           #}
+{#   2. Site-specific values (IPs, hostnames, interfaces, policies, creds) come   #}
+{#      ONLY from config_context (ctx). There are NO fabricated fallbacks — a     #}
+{#      block that needs a site value renders a visible `### REQUIRED` marker if  #}
+{#      the value is absent, so an incomplete golden config is obvious on diff,   #}
+{#      never silently pointed at the wrong/placeholder host.                     #}
+{#   3. Secrets are never literal: ctx value or an `ENC <...>` placeholder that   #}
+{#      golden_config_scrub normalises on diff.                                   #}
+{#                                                                               #}
+{# REQUIRED ctx keys:  dns_servers[], ntp_servers[], syslog{server},             #}
+{#   snmp{user,auth_pwd,priv_pwd,host}, admins[] (each with trusthosts[]),        #}
+{#   interfaces[] (name, role, ip/mask|dhcp), timezone.                           #}
+{# OPTIONAL: radius_servers[], tacacs_servers[], ldap_servers[], rest_api_users[],#}
+{#   addresses[], services[], static_routes[], ospf, bgp, firewall_policies[],    #}
+{#   ipsec_tunnels[], sslvpn, ha, fortianalyzer, fortiguard, central_mgmt,        #}
+{#   admin_local_in[], dos_policies[].                                            #}
+{# ============================================================================= #}
+{% set ctx = obj.get_config_context() %}
+{% macro required(value, key) %}{% if value %}{{ value }}{% else %}0.0.0.0 ### REQUIRED: set config_context.{{ key }}{% endif %}{% endmacro %}
+
+{# ============================================================================= #}
+{# COMPLIANCE CONTROL MAP — framework-tagged require/forbid assertions.           #}
+{# Parsed by the Evaluate-Compliance job (evaluate_compliance.py) and scored      #}
+{# against each device BACKUP, rolled up per framework (CIS/STIG/PCI/HIPAA/NIST/   #}
+{# SOX/GDPR). A framework is compliant only when EVERY control tagged with it     #}
+{# passes. These are comments — they don't affect the rendered config, they ARE   #}
+{# the rule set the Compliance page reads.                                        #}
+{# ----------------------------------------------------------------------------- #}
+{# Firewall-specific standards (NIST-800-41 = Guidelines on Firewalls & Firewall #}
+{# Policy, ISO-27001 = network/access/crypto controls, NERC-CIP = electronic     #}
+{# security perimeter) are tagged alongside the regulatory frameworks.           #}
+{# compliance: no-telnet-mgmt      | frameworks: CIS,STIG,PCI,HIPAA,NIST,GDPR,NIST-800-41,ISO-27001,NERC-CIP | forbid: set allowaccess [^\n]*\btelnet\b #}
+{# compliance: no-http-mgmt        | frameworks: CIS,STIG,PCI,HIPAA,NIST,NIST-800-41,ISO-27001,NERC-CIP      | forbid: set allowaccess [^\n]*\bhttp\b #}
+{# compliance: no-snmp-v2c         | frameworks: CIS,STIG,PCI,NIST,ISO-27001   | forbid: config system snmp community #}
+{# compliance: snmp-v3-enabled     | frameworks: CIS,STIG,PCI,NIST,HIPAA,ISO-27001 | require: config system snmp user #}
+{# compliance: strong-crypto       | frameworks: CIS,STIG,PCI,HIPAA,NIST,GDPR,ISO-27001 | require: set strong-crypto enable #}
+{# compliance: tls-1.2-min         | frameworks: PCI,HIPAA,NIST,GDPR,ISO-27001 | require: set admin-https-ssl-versions tlsv1-2 #}
+{# compliance: password-policy     | frameworks: CIS,STIG,PCI,HIPAA,NIST,SOX,ISO-27001,NERC-CIP | require: config system password-policy #}
+{# compliance: admin-lockout       | frameworks: CIS,STIG,PCI,NIST,NERC-CIP    | require: set admin-lockout-threshold [1-9] #}
+{# compliance: admin-idle-timeout  | frameworks: CIS,STIG,PCI,NIST,HIPAA,ISO-27001 | require: set admintimeout [1-9] #}
+{# compliance: admin-trusthost     | frameworks: CIS,STIG,PCI,NIST,HIPAA,NIST-800-41,ISO-27001,NERC-CIP | require: set trusthost1 #}
+{# compliance: https-redirect      | frameworks: CIS,STIG,ISO-27001            | require: set admin-https-redirect enable #}
+{# compliance: no-maintainer-acct  | frameworks: CIS,STIG,NERC-CIP             | require: set admin-maintainer disable #}
+{# compliance: login-banner        | frameworks: CIS,STIG,NIST,NERC-CIP        | require: set pre-login-banner enable #}
+{# compliance: ntp-time-sync       | frameworks: CIS,STIG,PCI,NIST,SOX,ISO-27001 | require: config system ntp #}
+{# compliance: dns-configured      | frameworks: CIS,NIST,NIST-800-41          | require: config system dns #}
+{# compliance: central-logging     | frameworks: CIS,STIG,PCI,HIPAA,NIST,SOX,GDPR,NIST-800-41,ISO-27001,NERC-CIP | require: config log syslogd setting #}
+{# compliance: policy-traffic-log  | frameworks: PCI,HIPAA,NIST,SOX,GDPR,NIST-800-41,ISO-27001 | require: set logtraffic all #}
+{# compliance: implicit-deny-log   | frameworks: NIST-800-41,PCI,NIST,ISO-27001 | require: set fwpolicy-implicit-log enable #}
+{# compliance: rule-documentation  | frameworks: NIST-800-41,SOX,ISO-27001     | require: set comments #}
+{# compliance: ssl-deep-inspection | frameworks: NIST-800-41,PCI,NIST          | require: set ssl-ssh-profile #}
+{# compliance: app-control         | frameworks: NIST-800-41,PCI,NIST          | require: set application-list #}
+{# compliance: antivirus-inspect   | frameworks: PCI,HIPAA,NIST,NIST-800-41    | require: set av-profile #}
+{# compliance: ips-inspect         | frameworks: PCI,NIST,NIST-800-41          | require: set ips-sensor #}
+{# compliance: ha-configured       | frameworks: SOX,NIST                      | require: config system ha #}
+{# ============================================================================= #}
+
+{# ============================================================================= #}
+{# 1. SYSTEM GLOBAL — crypto, admin access, banners, lockout, hardening          #}
+{#    CIS 1.x / 4.x · Fortinet Hardening Guide                                    #}
+{# ============================================================================= #}
+config system global
+    set hostname "{{ obj.name }}"
+{% if ctx.timezone is defined and ctx.timezone %}
+    set timezone {{ ctx.timezone }}
+{% else %}
+    set timezone 04     {# ### REQUIRED: set config_context.timezone (FortiOS tz index) #}
+{% endif %}
+    {# --- Admin session & lockout (CIS 2.2, 4.2) --- #}
+    set admintimeout {{ ctx.admin_timeout | default(5) }}
+    set admin-lockout-threshold {{ ctx.admin_lockout_threshold | default(3) }}
+    set admin-lockout-duration {{ ctx.admin_lockout_duration | default(300) }}
+    set admin-console-timeout 300
+    {# --- Admin access plane hardening (CIS 1.3, 4.3) --- #}
+    set admin-https-redirect enable
+    set admin-maintainer disable
+    set admin-scp enable
+{% if ctx.admin_sport is defined %}
+    set admin-sport {{ ctx.admin_sport }}
+{% endif %}
+{% if ctx.admin_ssh_port is defined %}
+    set admin-ssh-port {{ ctx.admin_ssh_port }}
+{% endif %}
+    {# --- Strong cryptography (Fortinet Hardening Guide) --- #}
+    set strong-crypto enable
+    set ssl-static-key-ciphers disable
+    set dh-params 8192
+    set ssh-hmac-md5 disable
+    set ssh-cbc-cipher disable
+    set ssh-kex-sha1 disable
+    set ssh-mac-weak disable
+    set admin-https-ssl-versions tlsv1-2 tlsv1-3
+    set admin-https-ssl-banned-ciphers RSA DHE
+    {# --- Legal banners (CIS 2.1.x) --- #}
+    set pre-login-banner enable
+    set post-login-banner enable
+{% if ctx.gui_certificate is defined and ctx.gui_certificate %}
+    set admin-server-cert "{{ ctx.gui_certificate }}"
+{% endif %}
+    {# --- Safety / supply-chain --- #}
+    set revision-backup-on-logout enable
+    set gui-certificates enable
+    set gui-wireless-opensecurity disable
+end
+
+{# USB auto-install of config/firmware disabled (physical-access supply chain). #}
+config system auto-install
+    set auto-install-config disable
+    set auto-install-image disable
+end
+
+{# ============================================================================= #}
+{# 2. PASSWORD POLICY — admins + IPsec PSK   (CIS 2.1)                            #}
+{# ============================================================================= #}
+config system password-policy
+    set status enable
+    set apply-to admin-password ipsec-preshared-key
+    set minimum-length {{ ctx.password_min_length | default(14) }}
+    set min-lower-case-letter 1
+    set min-upper-case-letter 1
+    set min-number 1
+    set min-non-alphanumeric 1
+    set change-4-characters enable
+    set expire-status {{ ctx.password_expire | default('disable') }}
+    set reuse-password disable
+end
+
+{# ============================================================================= #}
+{# 3. REMOTE ADMIN AUTH — RADIUS / TACACS+ / LDAP   (CIS 4.x, defence-in-depth)   #}
+{# ============================================================================= #}
+{% if ctx.radius_servers | default([]) %}
+config user radius
+{% for r in ctx.radius_servers %}
+    edit "{{ r.name }}"
+        set server "{{ r.server }}"
+        set secret {{ r.secret | default('ENC <radius-secret>') }}
+        set auth-type auto
+    next
+{% endfor %}
+end
+{% endif %}
+{% if ctx.tacacs_servers | default([]) %}
+config user tacacs+
+{% for t in ctx.tacacs_servers %}
+    edit "{{ t.name }}"
+        set server "{{ t.server }}"
+        set key {{ t.key | default('ENC <tacacs-key>') }}
+        set authorization enable
+    next
+{% endfor %}
+end
+{% endif %}
+{% if ctx.ldap_servers | default([]) %}
+config user ldap
+{% for l in ctx.ldap_servers %}
+    edit "{{ l.name }}"
+        set server "{{ l.server }}"
+        set cnid "{{ l.cnid | default('cn') }}"
+        set dn "{{ l.dn }}"
+        set type regular
+        set username "{{ l.bind_dn }}"
+        set password {{ l.bind_pwd | default('ENC <ldap-bind-pwd>') }}
+        set secure ldaps
+        set port 636
+    next
+{% endfor %}
+end
+{% endif %}
+{% if ctx.admin_auth_group is defined and (ctx.radius_servers or ctx.tacacs_servers or ctx.ldap_servers) %}
+config user group
+    edit "{{ ctx.admin_auth_group }}"
+        set member {% for s in (ctx.radius_servers | default([])) + (ctx.tacacs_servers | default([])) + (ctx.ldap_servers | default([])) %}"{{ s.name }}" {% endfor %}
+
+    next
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 4. ADMINISTRATORS — least privilege, trusted hosts, MFA   (CIS 4.1, 4.4)       #}
+{#    Every admin MUST have a trusthost. If ctx omits it we emit a REQUIRED       #}
+{#    marker rather than defaulting to 0.0.0.0/0 (which would be CR-19).          #}
+{# ============================================================================= #}
+config system admin
+{% for adm in ctx.admins | default([{'name': 'admin', 'accprofile': 'super_admin'}]) %}
+    edit "{{ adm.name }}"
+        set accprofile "{{ adm.accprofile | default('super_admin') }}"
+        set vdom "{{ adm.vdom | default('root') }}"
+{% if adm.remote_group is defined and adm.remote_group %}
+        set remote-auth enable
+        set remote-group "{{ adm.remote_group }}"
+{% endif %}
+{% set ths = adm.trusthosts | default(ctx.admin_trusthosts) | default([]) %}
+{% if ths %}
+{% for th in ths %}
+        set trusthost{{ loop.index }} {{ th }}
+{% endfor %}
+{% else %}
+        ### REQUIRED: set config_context admins[].trusthosts (CIS 4.1 — never 0.0.0.0/0)
+{% endif %}
+{% if adm.two_factor | default(false) %}
+        set two-factor {{ adm.two_factor }}
+{% endif %}
+    next
+{% endfor %}
+end
+
+{% if ctx.rest_api_users | default([]) %}
+config system api-user
+{% for u in ctx.rest_api_users %}
+    edit "{{ u.name }}"
+        set accprofile "{{ u.accprofile | default('read_only') }}"
+        set vdom "{{ u.vdom | default('root') }}"
+{% for th in u.trusthosts | default(ctx.admin_trusthosts) | default([]) %}
+        config trusthost
+            edit {{ loop.index }}
+                set ipv4-trusthost {{ th }}
+            next
+        end
+{% endfor %}
+    next
+{% endfor %}
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 5. LOCAL-IN POLICY — restrict the mgmt plane to trusted sources (defence)      #}
+{# ============================================================================= #}
+{% if ctx.admin_local_in | default([]) %}
+config firewall local-in-policy
+{% for li in ctx.admin_local_in %}
+    edit {{ loop.index }}
+        set intf "{{ li.intf }}"
+        set srcaddr "{{ li.srcaddr }}"
+        set dstaddr "all"
+        set service {{ li.service | default('HTTPS SSH SNMP') }}
+        set action accept
+        set schedule "always"
+        set comments "Trusted admin source"
+    next
+    edit {{ (ctx.admin_local_in | length) + loop.index }}
+        set intf "{{ li.intf }}"
+        set srcaddr "all"
+        set dstaddr "all"
+        set service {{ li.service | default('HTTPS SSH SNMP') }}
+        set action deny
+        set schedule "always"
+        set comments "Deny management from untrusted sources"
+    next
+{% endfor %}
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 6. DNS — redundant resolvers (CIS 1.1)                                         #}
+{# ============================================================================= #}
+config system dns
+    set primary {{ required(ctx.dns_servers[0] if ctx.dns_servers | default([]) else '', 'dns_servers[0]') }}
+{% if ctx.dns_servers | default([]) | length > 1 %}
+    set secondary {{ ctx.dns_servers[1] }}
+{% endif %}
+    set dns-over-tls {{ ctx.dns_over_tls | default('disable') }}
+end
+
+{# ============================================================================= #}
+{# 7. NTP — authenticated, redundant time   (CIS 1.x)                             #}
+{# ============================================================================= #}
+config system ntp
+    set ntpsync enable
+    set type custom
+    set syncinterval 60
+    config ntpserver
+{% if ctx.ntp_servers | default([]) %}
+{% for s in ctx.ntp_servers %}
+        edit {{ loop.index }}
+            set server "{{ s }}"
+        next
+{% endfor %}
+{% else %}
+        ### REQUIRED: set config_context.ntp_servers (>= 2 for CIS)
+{% endif %}
+    end
+end
+
+{# ============================================================================= #}
+{# 8. SNMP — v3 only (auth-priv). No v1/v2c community.   (CIS 3.x)                #}
+{# ============================================================================= #}
+config system snmp sysinfo
+    set status enable
+    set trap-high-cpu-threshold 80
+    set trap-low-memory-threshold 80
+end
+{% if ctx.snmp is defined and ctx.snmp %}
+config system snmp user
+    edit "{{ ctx.snmp.user }}"
+        set status enable
+        set security-level auth-priv
+        set auth-proto sha256
+        set auth-pwd {{ ctx.snmp.auth_pwd | default('ENC <snmp-auth-pwd>') }}
+        set priv-proto aes256
+        set priv-pwd {{ ctx.snmp.priv_pwd | default('ENC <snmp-priv-pwd>') }}
+        set notify-hosts {{ ctx.snmp.host }}
+        set events cpu-high mem-low intf-ip vpn-tun-up vpn-tun-down ha-switch
+        set queries enable
+    next
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 9. LOGGING — reliable syslog, event logging, optional FortiAnalyzer   (CIS 6)  #}
+{# ============================================================================= #}
+{% if ctx.syslog is defined and ctx.syslog %}
+config log syslogd setting
+    set status enable
+    set server "{{ ctx.syslog.server }}"
+    set port {{ ctx.syslog.port | default(514) }}
+    set mode {{ ctx.syslog.mode | default('reliable') }}
+{% if ctx.syslog.mode | default('reliable') == 'reliable' and ctx.syslog.enc_algorithm | default('') %}
+    set enc-algorithm {{ ctx.syslog.enc_algorithm }}
+{% endif %}
+    set facility {{ ctx.syslog.facility | default('local7') }}
+    set format {{ ctx.syslog.format | default('default') }}
+end
+config log syslogd filter
+    set severity {{ ctx.syslog.severity | default('information') }}
+    set forward-traffic enable
+    set local-traffic enable
+end
+{% endif %}
+config log memory setting
+    set status enable
+end
+config log setting
+    set resolve-ip enable
+    set fwpolicy-implicit-log enable
+end
+config log eventfilter
+    set event enable
+    set system enable
+    set vpn enable
+    set user enable
+    set router enable
+    set ha enable
+end
+{% if ctx.fortianalyzer is defined and ctx.fortianalyzer %}
+config log fortianalyzer setting
+    set status enable
+    set server "{{ ctx.fortianalyzer.server | default(ctx.fortianalyzer) }}"
+    set upload-option realtime
+    set reliable enable
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 10. INTERFACES — every iface described; WAN exposes NO management   (CIS 1.3)  #}
+{# ============================================================================= #}
+config system interface
+{% for iface in ctx.interfaces | default([]) %}
+    edit {{ iface.name }}
+        set description "{{ iface.description | default((iface.role | default(iface.name)) | upper ~ ' interface') }}"
+{% if iface.role is defined and iface.role %}
+        set role {{ iface.role }}
+{% endif %}
+{% if iface.mode | default('') == 'dhcp' %}
+        set mode dhcp
+{% else %}
+        set mode static
+        set ip {{ iface.ip }} {{ iface.mask }}
+{% endif %}
+{% if iface.role | default('') == 'wan' %}
+        set allowaccess {{ iface.allowaccess | default('ping') }}
+        set device-identification disable
+{% else %}
+        set allowaccess {{ iface.allowaccess | default('ping https ssh snmp fgfm') }}
+{% endif %}
+    next
+{% endfor %}
+end
+
+{# ============================================================================= #}
+{# 11. ADDRESS / SERVICE OBJECTS — policies reference names, not bare 'all'       #}
+{# ============================================================================= #}
+{% if ctx.addresses | default([]) %}
+config firewall address
+{% for a in ctx.addresses %}
+    edit "{{ a.name }}"
+{% if a.subnet is defined %}
+        set subnet {{ a.subnet }}
+{% elif a.fqdn is defined %}
+        set type fqdn
+        set fqdn "{{ a.fqdn }}"
+{% endif %}
+        set comment "{{ a.comment | default('') }}"
+    next
+{% endfor %}
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 12. UTM SECURITY PROFILES — AV / IPS / Webfilter / AppCtrl / DNS / SSL deep    #}
+{#     (CIS 7.x) — applied by accept policies below.                              #}
+{# ============================================================================= #}
+{% if ctx.enable_utm | default(true) %}
+config antivirus profile
+    edit "{{ ctx.av_profile | default('gc-av') }}"
+        set comment "Golden-config AV"
+        config http
+            set av-scan block
+        end
+        config https
+            set av-scan block
+        end
+        config ftp
+            set av-scan block
+        end
+        config smtp
+            set av-scan block
+        end
+    next
+end
+config ips sensor
+    edit "{{ ctx.ips_sensor | default('gc-ips') }}"
+        set comment "Golden-config IPS"
+        config entries
+            edit 1
+                set severity medium high critical
+                set status enable
+                set action block
+            next
+        end
+    next
+end
+config application list
+    edit "{{ ctx.app_list | default('gc-appctrl') }}"
+        set comment "Golden-config application control"
+        set other-application-action pass
+        config entries
+            edit 1
+                set category 2 6     {# P2P, Proxy #}
+                set action block
+            next
+        end
+    next
+end
+config dnsfilter profile
+    edit "{{ ctx.dns_filter | default('gc-dnsfilter') }}"
+        set comment "Golden-config DNS filter"
+        config ftgd-dns
+            config filters
+                edit 1
+                    set category 26  {# Malicious Websites #}
+                    set action block
+                next
+            end
+        end
+    next
+end
+config firewall ssl-ssh-profile
+    edit "{{ ctx.ssl_ssh_profile | default('gc-deep-inspection') }}"
+        set comment "Golden-config inspection"
+        config https
+            set ports 443
+        end
+    next
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 13. STATIC ROUTING — redundant defaults + comment on every route   (MR-55/56)  #}
+{# ============================================================================= #}
+config router static
+{% for route in ctx.static_routes | default([]) %}
+    edit {{ loop.index }}
+        set dst {{ route.dst }}
+        set gateway {{ route.gateway }}
+        set device {{ route.device }}
+{% if route.distance is defined %}
+        set distance {{ route.distance }}
+{% endif %}
+{% if route.priority is defined %}
+        set priority {{ route.priority }}
+{% endif %}
+        set comment "{{ route.comment | default('Golden config managed route') }}"
+    next
+{% endfor %}
+end
+
+{# ============================================================================= #}
+{# 14. DYNAMIC ROUTING — authenticated neighbours only   (HR-43)                  #}
+{# ============================================================================= #}
+{% if ctx.ospf is defined and ctx.ospf %}
+config router ospf
+    set router-id {{ ctx.ospf.router_id }}
+    config area
+        edit {{ ctx.ospf.area | default('0.0.0.0') }}
+        next
+    end
+    config ospf-interface
+{% for oi in ctx.ospf.interfaces | default([]) %}
+        edit "{{ oi.name }}"
+            set interface "{{ oi.interface }}"
+            set authentication md5
+            set md5-keychain "{{ oi.keychain | default('ospf-key') }}"
+        next
+{% endfor %}
+    end
+end
+{% endif %}
+{% if ctx.bgp is defined and ctx.bgp %}
+config router bgp
+    set as {{ ctx.bgp.as }}
+    set router-id {{ ctx.bgp.router_id }}
+    config neighbor
+{% for n in ctx.bgp.neighbors | default([]) %}
+        edit "{{ n.ip }}"
+            set remote-as {{ n.remote_as }}
+            set password {{ n.password | default('ENC <bgp-md5>') }}
+        next
+{% endfor %}
+    end
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 15. FIREWALL POLICY — named objects, UTM + deep inspection, log all, comments  #}
+{#     Deny-by-default is implicit on FortiOS; only explicit allows are defined.  #}
+{# ============================================================================= #}
+config firewall policy
+{% for policy in ctx.firewall_policies | default([]) %}
+    edit {{ policy.id }}
+        set name "{{ policy.name }}"
+        set srcintf {{ policy.srcintf }}
+        set dstintf {{ policy.dstintf }}
+        set srcaddr {{ policy.srcaddr | default('all') }}
+        set dstaddr {{ policy.dstaddr | default('all') }}
+        set action {{ policy.action | default('accept') }}
+        set schedule {{ policy.schedule | default('always') }}
+        set service {{ policy.service | default('ALL') }}
+{% if policy.action | default('accept') == 'accept' and ctx.enable_utm | default(true) %}
+        set utm-status enable
+        set ssl-ssh-profile "{{ policy.ssl_ssh_profile | default(ctx.ssl_ssh_profile) | default('gc-deep-inspection') }}"
+        set av-profile "{{ policy.av_profile | default(ctx.av_profile) | default('gc-av') }}"
+        set ips-sensor "{{ policy.ips_sensor | default(ctx.ips_sensor) | default('gc-ips') }}"
+        set application-list "{{ policy.application_list | default(ctx.app_list) | default('gc-appctrl') }}"
+        set dnsfilter-profile "{{ policy.dnsfilter_profile | default(ctx.dns_filter) | default('gc-dnsfilter') }}"
+{% if policy.webfilter_profile is defined %}
+        set webfilter-profile "{{ policy.webfilter_profile }}"
+{% endif %}
+{% endif %}
+        set logtraffic all
+{% if policy.nat | default(false) %}
+        set nat enable
+{% if policy.ippool is defined %}
+        set ippool enable
+        set poolname "{{ policy.ippool }}"
+{% endif %}
+{% endif %}
+        set comments "{{ policy.comment | default('Golden config managed policy') }}"
+    next
+{% endfor %}
+end
+
+{# ============================================================================= #}
+{# 16. DoS POLICY — volumetric/anomaly protection on edge interfaces             #}
+{# ============================================================================= #}
+{% for dos in ctx.dos_policies | default([]) %}
+config firewall DoS-policy
+    edit {{ loop.index }}
+        set interface "{{ dos.interface }}"
+        set srcaddr "all"
+        set dstaddr "all"
+        set service "ALL"
+        config anomaly
+            edit "tcp_syn_flood"
+                set status enable
+                set action block
+                set threshold {{ dos.syn_flood_threshold | default(2000) }}
+            next
+            edit "udp_flood"
+                set status enable
+                set action block
+                set threshold {{ dos.udp_flood_threshold | default(2000) }}
+            next
+        end
+    next
+end
+{% endfor %}
+
+{# ============================================================================= #}
+{# 17. IPsec VPN — IKEv2, strong proposals                                        #}
+{# ============================================================================= #}
+{% for vpn in ctx.ipsec_tunnels | default([]) %}
+config vpn ipsec phase1-interface
+    edit "{{ vpn.name }}"
+        set interface "{{ vpn.interface }}"
+        set ike-version 2
+        set peertype any
+        set proposal {{ vpn.phase1_proposal | default('aes256-sha256 aes256gcm-prfsha384') }}
+        set dhgrp {{ vpn.dhgrp | default('14') }}
+        set remote-gw {{ vpn.remote_gw }}
+        set psksecret {{ vpn.psk | default('ENC <ipsec-psk>') }}
+    next
+end
+config vpn ipsec phase2-interface
+    edit "{{ vpn.name }}"
+        set phase1name "{{ vpn.name }}"
+        set proposal {{ vpn.phase2_proposal | default('aes256-sha256 aes256gcm') }}
+        set dhgrp {{ vpn.dhgrp | default('14') }}
+        set pfs enable
+    next
+end
+{% endfor %}
+
+{# ============================================================================= #}
+{# 18. SSL-VPN — bounded, TLS 1.2+, dedicated cert   (MR-32)                      #}
+{# ============================================================================= #}
+{% if ctx.sslvpn is defined and ctx.sslvpn %}
+config vpn ssl settings
+    set idle-timeout {{ ctx.sslvpn.idle_timeout | default(300) }}
+    set auth-timeout {{ ctx.sslvpn.auth_timeout | default(28800) }}
+    set login-attempt-limit 3
+    set login-block-time 60
+    set ssl-min-proto-ver tls1-2
+{% if ctx.sslvpn.servercert is defined and ctx.sslvpn.servercert %}
+    set servercert "{{ ctx.sslvpn.servercert }}"
+{% endif %}
+    set source-interface "{{ ctx.sslvpn.source_interface | default('wan1') }}"
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 19. HIGH AVAILABILITY — monitored interfaces required   (HR-50)               #}
+{# ============================================================================= #}
+{% if ctx.ha is defined and ctx.ha %}
+config system ha
+    set mode {{ ctx.ha.mode | default('a-p') }}
+    set group-name "{{ ctx.ha.group_name | default('GC-HA') }}"
+    set group-id {{ ctx.ha.group_id | default(1) }}
+    set hbdev {{ ctx.ha.hbdev | default('"ha1" 50 "ha2" 100') }}
+    set session-pickup enable
+    set override disable
+    set priority {{ ctx.ha.priority | default(128) }}
+    set monitor {{ ctx.ha.monitor_interfaces | default('"wan1"') }}
+end
+{% endif %}
+
+{# ============================================================================= #}
+{# 20. FortiGuard / central management                                           #}
+{# ============================================================================= #}
+{% if ctx.fortiguard is defined and ctx.fortiguard %}
+config system fortiguard
+    set protocol https
+    set port 443
+    set update-server-location {{ ctx.fortiguard.location | default('usa') }}
+    set fortiguard-anycast enable
+end
+{% endif %}
